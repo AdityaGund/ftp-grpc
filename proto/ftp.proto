@@ -1,0 +1,56 @@
+syntax="proto3";
+
+package ftp;
+
+/*
+Requirements
+1. store the file on the server?
+2. fn inside the service?
+3. how to maintain logs? 
+*/
+service FtpService {
+    //1.Send 
+    //simple plaintest ms g like email
+    rpc SendMessage(MessageRequest)  returns (MessageResponse);
+    //2. For uploading the files sending files in stream client streaming
+    rpc UploadFile(stream FileChunk) returns (UploadResponse);
+    //3.for dwonloading 
+    rpc DownloadFile(DownloadRequest) returns (stream FileChunk);
+}
+enum MessageType { 
+    EMAIL_MESSAGE = 0; 
+    FILE_TRANSFER = 1; 
+    FILE_REQUEST = 2; 
+}
+
+message MessageRequest { 
+    string client_id = 1; 
+    string timestamp = 2; 
+    MessageType message_type = 3; 
+    string content = 4;
+}
+
+message MessageResponse { 
+    string response = 1; 
+    string timestamp = 2; 
+}
+
+message FileChunk { 
+    string client_id = 1; 
+    string timestamp = 2; 
+    MessageType message_type = 3; 
+    string filename = 4;
+    bytes data = 5; 
+}
+
+message UploadResponse { 
+    string status = 1; 
+    string timestamp = 2; 
+}
+
+message DownloadRequest {
+     string client_id = 1; 
+     string timestamp = 2; 
+     MessageType message_type = 3; 
+     string filename = 4; 
+}
