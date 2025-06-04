@@ -12,6 +12,8 @@ uuid={version="1.10" , features=["v4","serde"]}
 chrono = "0.4.41"
 log = "0.4.27"
 simplelog = "0.12.2"
+futures="0.3.31"
+futures-util="0.3.31"
 
 [build-dependencies]
 tonic-build = "0.13.1"
