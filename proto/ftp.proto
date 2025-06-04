@@ -1,56 +1,47 @@
-syntax="proto3";
+syntax = "proto3";
 
 package ftp;
 
-/*
-Requirements
-1. store the file on the server?
-2. fn inside the service?
-3. how to maintain logs? 
-*/
-service FtpService {
-    //1.Send 
-    //simple plaintest ms g like email
-    rpc SendMessage(MessageRequest)  returns (MessageResponse);
-    //2. For uploading the files sending files in stream client streaming
-    rpc UploadFile(stream FileChunk) returns (UploadResponse);
-    //3.for dwonloading 
-    rpc DownloadFile(DownloadRequest) returns (stream FileChunk);
-}
-enum MessageType { 
-    EMAIL_MESSAGE = 0; 
-    FILE_TRANSFER = 1; 
-    FILE_REQUEST = 2; 
+service TransferService {
+    rpc Transfer (stream Chunk) returns (TransferResponse);
 }
 
-message MessageRequest { 
-    string client_id = 1; 
-    string timestamp = 2; 
-    MessageType message_type = 3; 
-    string content = 4;
+message Chunk {
+    oneof data {
+        Metadata metadata = 1;   
+        bytes content = 2;
+    }
 }
 
-message MessageResponse { 
-    string response = 1; 
-    string timestamp = 2; 
+message Metadata {
+    string transfer_id = 1;       
+    string sender_id = 2;
+    string receiver_id = 3;
+
+    oneof payload_type {
+        FileInfo file_info = 4;      
+        MessageInfo message_info = 5;
+    }
 }
 
-message FileChunk { 
-    string client_id = 1; 
-    string timestamp = 2; 
-    MessageType message_type = 3; 
-    string filename = 4;
-    bytes data = 5; 
+message FileInfo {
+    string name = 1;
+    uint64 size = 2; // Total size of the file in bytes
+    string content_type = 3; // e.g., "image/jpeg", "application/pdf"
 }
 
-message UploadResponse { 
-    string status = 1; 
-    string timestamp = 2; 
+message MessageInfo {
+    uint64 length = 1; 
 }
 
-message DownloadRequest {
-     string client_id = 1; 
-     string timestamp = 2; 
-     MessageType message_type = 3; 
-     string filename = 4; 
+message TransferResponse {
+    string transfer_id = 1; 
+    Status status = 2;
+    string message = 3;     // e.g., "Successfully received by B", "Forwarded to C", "Error: C unavailable"
+}
+
+enum Status {
+    SUCCESS = 0; 
+    IN_PROGRESS = 1;                  
+    FAILURE = 2;
 }
