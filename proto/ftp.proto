@@ -3,14 +3,11 @@ syntax = "proto3";
 package ftp;
 
 service TransferService {
-    rpc Transfer (stream Chunk) returns (TransferResponse);
+    rpc Transfer (TransferRequest) returns (TransferResponse);
 }
 
-message Chunk {
-    oneof data {
-        Metadata metadata = 1;   
-        bytes content = 2; 
-    }
+message TransferRequest {
+    Metadata metadata = 1;
 }
 
 message Metadata {
@@ -26,8 +23,9 @@ message Metadata {
 
 message FileInfo {
     string name = 1;
-    uint64 size = 2; // Total size of the file in bytes
-    string content_type = 3; // e.g., "image/jpeg", "application/pdf"
+    string path = 2;
+    // uint64 size = 3; // Total size of the file in bytes
+    // string content_type = 4; // e.g., "image/jpeg", "application/pdf"
 }
 
 message MessageInfo {
@@ -42,6 +40,6 @@ message TransferResponse {
 
 enum Status {
     SUCCESS = 0; 
-    IN_PROGRESS = 1;                  
+    // IN_PROGRESS = 1;                  
     FAILURE = 2;
 }
