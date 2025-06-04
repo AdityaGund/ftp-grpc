@@ -8,6 +8,7 @@ service TransferService {
 
 message TransferRequest {
     Metadata metadata = 1;
+    bytes content = 2;  // Actual file content or message content
 }
 
 message Metadata {
@@ -24,7 +25,7 @@ message Metadata {
 message FileInfo {
     string name = 1;
     string path = 2;
-    // uint64 size = 3; // Total size of the file in bytes
+    uint64 size = 3; // Total size of the file in bytes
     // string content_type = 4; // e.g., "image/jpeg", "application/pdf"
 }
 

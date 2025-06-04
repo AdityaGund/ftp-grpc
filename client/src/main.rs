@@ -1,41 +1,74 @@
-use std::error::Error;
+use std::{env, error::Error};
+use dotenv::dotenv;
 use ftp::{TransferRequest, Metadata, FileInfo};
-
+use tokio::fs;
 use ftp::transfer_service_client::TransferServiceClient;
 
 pub mod ftp {
     tonic::include_proto!("ftp");
 }
 
-async fn transfer_file(client: &mut TransferServiceClient<tonic::transport::Channel>, file_path: &str) -> Result<(), Box<dyn Error>> {
-    // For grpcurl, you want to be able to send path, sender_bank_id, receiver_bank_id
-    // We'll just use the file_path and hardcode the rest for now
+async fn send_file(client: &mut TransferServiceClient<tonic::transport::Channel>, file_path: &str) -> Result<(), Box<dyn Error>> {
+    // Read file content
+    let content = fs::read(file_path).await?;
+    
+    // Get file name from path
+    let file_name = std::path::Path::new(file_path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(file_path)
+        .to_string();
+
+    println!("[DEBUG] file_name: {}", file_name);
+    
+    // Create file info
     let file_info = FileInfo {
+        name: file_name.clone(),
         path: file_path.to_string(),
-        name: file_path.to_string(),
-        // size: 0, // Not used in proto for grpcurl, so set to 0
+        size: content.len() as u64,
     };
 
+    println!("[DEBUG] file_name:{file_info:?}");
+    
+    // metadata
     let metadata = Metadata {
-        transfer_id: "transfer-1".to_string(),
-        sender_bank_id: "A".to_string(), // You can change this for grpcurl
-        receiver_bank_id: "B".to_string(), // You can change this for grpcurl
+        transfer_id: uuid::Uuid::new_v4().to_string(),
+        sender_bank_id: "CLIENT".to_string(),
+        receiver_bank_id: "SERVER".to_string(),
         payload_type: Some(ftp::metadata::PayloadType::FileInfo(file_info)),
     };
 
+    println!("[DEBUG] file_info:{metadata:?}");
+    
+    // Create and send request
     let request = TransferRequest {
         metadata: Some(metadata),
+        content,
     };
 
+    // println!("[DEBUG] file_name:{request:?}");
+
+    // invoke transfer function
     let response = client.transfer(request).await?;
-    println!("Response: {:?}", response.into_inner());
+    println!("[SERVER] Server response: {:?}", response.into_inner());
+    
     Ok(())
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let url = "http://127.0.0.1:5051";
+
+    dotenv().ok();
+    
+    // Get server address from environment variables
+    let host = env::var("SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+    let port = env::var("SERVER_PORT").unwrap_or_else(|_| "50051".to_string());
+    let url = format!("http://{}:{}", host, port);
+    
     let mut client = TransferServiceClient::connect(url).await?;
-    transfer_file(&mut client, "../../ref.txt").await?;
+    
+    // Send a test file
+    send_file(&mut client, r"send_files\JAVA Notes.pdf").await?;
+    
     Ok(())
 }

@@ -1,68 +1,71 @@
 use ftp::transfer_service_server::{TransferService, TransferServiceServer};
-use ftp::{Status, TransferRequest, TransferResponse};
-use std::{error::Error, net::SocketAddr};
+use std::{env, error::Error, net::SocketAddr, path::Path};
+use tokio::fs;
 use tonic::transport::Server;
+use dotenv::dotenv;
 
 pub mod ftp {
     tonic::include_proto!("ftp");
-
-    pub(crate) const _FILE_DESCRIPTOR_SET: &[u8] =
-        tonic::include_file_descriptor_set!("ftp_descriptor");
 }
 
 #[derive(Debug, Default)]
-pub struct ClientTransfer {}
+pub struct FileTransferService {}
 
 #[tonic::async_trait]
-impl TransferService for ClientTransfer {
+impl TransferService for FileTransferService {
     async fn transfer(
         &self,
-        request: tonic::Request<TransferRequest>,
-    ) -> Result<tonic::Response<TransferResponse>, tonic::Status> {
-        println!("[SERVER] Transfer function invoked!");
+        request: tonic::Request<ftp::TransferRequest>,
+    ) -> Result<tonic::Response<ftp::TransferResponse>, tonic::Status> {
         let req = request.into_inner();
-        let transfer_id = req
-            .metadata
-            .as_ref()
-            .map(|m| m.transfer_id.clone())
-            .unwrap_or_default();
-
-        let file_name = req
-            .metadata
-            .as_ref()
-            .and_then(|m| match &m.payload_type {
-                Some(ftp::metadata::PayloadType::FileInfo(info)) => Some(info.name.clone()),
-                _ => None,
-            })
-            .unwrap_or_else(|| "no_file_name_in_metadata".to_string());
-
-        let file_path = req
-            .metadata
-            .as_ref()
-            .and_then(|m| match &m.payload_type {
-                Some(ftp::metadata::PayloadType::FileInfo(info)) => Some(info.path.clone()),
-                _ => None,
-            })
-            .unwrap_or_else(|| "no_path_in_metadata".to_string());
-
-        println!(
-            "[SERVER] Received transfer_id: {transfer_id}, file_name: {file_name}, file_path: {file_path}"
-        );
         
-        let response = TransferResponse {
-            transfer_id,
-            status: Status::Success as i32,
-            message: format!("Received file info: name={}, path={}", file_name, file_path),
+        // Get file info from metadata
+        let file_info = req.metadata
+            .as_ref()
+            .and_then(|m| match &m.payload_type {
+                Some(ftp::metadata::PayloadType::FileInfo(info)) => Some(info),
+                _ => None,
+            })
+            .ok_or_else(|| tonic::Status::invalid_argument("No file info provided"))?;
+
+        let storage_dir = "received_files";
+        fs::create_dir_all(storage_dir)
+            .await
+            .map_err(|e| tonic::Status::internal(format!("Failed to create storage directory: {}", e)))?;
+
+        // Create full path for the file
+        let file_path = Path::new(storage_dir).join(&file_info.name);
+        
+        // Save the file
+        fs::write(&file_path, req.content)
+            .await
+            .map_err(|e| tonic::Status::internal(format!("Failed to write file: {}", e)))?;
+
+        println!("File saved to: {}", file_path.display());
+
+        let response = ftp::TransferResponse {
+            transfer_id: req.metadata.clone().map(|m| m.transfer_id).unwrap_or_default(),
+            status: ftp::Status::Success as i32,
+            message: format!("File {} received & saved successfully", file_info.name),
         };
+
         Ok(tonic::Response::new(response))
     }
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    println!("[SERVER] Starting gRPC server on 127.0.0.1:5051");
-    let addr: SocketAddr = "127.0.0.1:5051".parse()?;
-    let service = ClientTransfer::default();
+    
+    dotenv().ok();
+    
+
+    // Get server address from environment variables
+    let host = env::var("SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+    let port = env::var("SERVER_PORT").unwrap_or_else(|_| "50051".to_string());
+    let addr = format!("{}:{}", host, port).parse::<SocketAddr>()?;
+    
+    let service = FileTransferService::default();
+    println!("Server listening on {}", addr);
 
     Server::builder()
         .add_service(TransferServiceServer::new(service))
