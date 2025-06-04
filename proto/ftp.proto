@@ -9,7 +9,7 @@ service TransferService {
 message Chunk {
     oneof data {
         Metadata metadata = 1;   
-        bytes content = 2;
+        bytes content = 2; 
     }
 }
 
