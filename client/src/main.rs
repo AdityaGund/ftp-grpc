@@ -33,8 +33,8 @@ async fn send_file(client: &mut TransferServiceClient<tonic::transport::Channel>
     // metadata
     let metadata = Metadata {
         transfer_id: uuid::Uuid::new_v4().to_string(),
-        sender_bank_id: "CLIENT".to_string(),
-        receiver_bank_id: "SERVER".to_string(),
+        sender_bank_id: "BANK_A".to_string(),
+        receiver_bank_id: "BANK_C".to_string(),
         payload_type: Some(ftp::metadata::PayloadType::FileInfo(file_info)),
     };
 
