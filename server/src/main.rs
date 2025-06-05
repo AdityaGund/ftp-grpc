@@ -1,7 +1,7 @@
 use ftp::transfer_service_server::{TransferService, TransferServiceServer};
-use std::{collections::HashMap, env, error::Error, net::SocketAddr, path::{Path, PathBuf}};
+use std::{collections::HashMap, env, error::Error, net::SocketAddr, path::Path};
 use tokio::fs;
-use tonic::{transport::Server, Request};
+use tonic::transport::Server;
 use dotenv::dotenv;
 use crate::ftp::transfer_service_client::TransferServiceClient;
 

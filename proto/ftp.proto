@@ -8,7 +8,8 @@ service TransferService {
 
 message TransferRequest {
     Metadata metadata = 1;
-    bytes content = 2;  // Actual file content or message content
+    bytes content = 2;  // vec<u8> -> Attachment, 
+    // bytes message = 3;
 }
 
 message Metadata {
@@ -19,7 +20,13 @@ message Metadata {
     oneof payload_type {
         FileInfo file_info = 4;      
         MessageInfo message_info = 5;
+        //! AttachmentInfo attachment_info = 6;
     }
+}
+
+message AttachmentInfo {
+    FileInfo file_info = 1;      
+    MessageInfo message_info = 2;
 }
 
 message FileInfo {
