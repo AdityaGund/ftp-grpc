@@ -1,0 +1,9 @@
+Core idea of project ->
+
+User A wants to send a file. so here the user will the be client
+and we will intercept this request and act as a server.
+
+once we receive the file completely
+we will, still act as a server and send it to the destination (Which then acts as the client)
+
+essentially, the user wants to send their file to the destination, but their file will ALWAYS be intercepted by us.

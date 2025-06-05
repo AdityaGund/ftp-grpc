@@ -9,3 +9,9 @@
 # These are backup files created by editors
 **/*.swp
 **/*.swo
+
+.env
+
+client/send_files
+server/received_files
+destination/destination_files
