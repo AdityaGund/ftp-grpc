@@ -1,36 +1,66 @@
-i'm working on a project which involves file transferring from bank A to bank B.
-the tech stack involves rust backend, gRPC. 
-
-gist of the project: 
-
-say we have A, A wants to send a file to C. I am building a system which allows A
-to send files to C, but B interccepts this request. Essentially A, while sending 
-the file to C, the file is met by B.
-
-Internals:
-
-The user is welcomed by the UI. user fills the form or wtv, then uploads the file 
-for transfer. then, the server code (this code is running on the server of
-the user itself, that's right, according to our earlier analogy, A will run the code
-on their server) will get the request. This request is handled by the actix web server,
-which then invokes the gRPC client. But before invoking the gRPC client to start 
-the server, the file, which is to be transferred, is stored temporarily somewhere on
-disk (on the server, the whereabouts of this are not known yet).
-
-Once the file is stored temporarily, we start the trasnfer through the gRPC client.
-
-IMPORTANT part, the transfer of the files is done in Chunks (size of the chunks will 
-be decided later ig). the first chunk will be sent, then this chunk is written in the 
-server of B. once the write is done completely, B will send an acknowledgement to A
-then A's gRPC sends the next chunk. and so on. now the file is temporarily stored
-B.
-
-Once the write is completely done in B, since B already knows the destination, the 
-gRPC in B will start the transfer to C. transfer is done in the same way as A to B.
-just like A was running the code, B also will run the code on their server and so will C.
-
+i'm working on a project that involves transferring files from bank A to bank B. the tech stack i'm using includes a rust backend & gRPC.
 
 ---
 
-- somehow indicate that the msg/file has ended
-    - one way to do this is use EOF indicator
+the gist of the project:
+
+let's say we have A, and A wants to send a file to C. i'm building a system that allows A to send files to C, but with B intercepting this request. essentially, while the file is on its way from A to C, it passes through B. B isn't a user — you can think of it as an administrative server. its main role is to intercept and forward files to wherever they're meant to go. it always sits in the middle of the transfer.
+
+
+> NOTE: we are allowing file transfer, messages or BOTH at the same time.
+
+---
+
+Internals of the File Transfer System
+
+1. Initial Request & UI Interaction
+
+* The user (say, User A) accesses the application via a web-based **UI** served by an **Actix Web** server.
+* The user fills out a form and uploads the file intended for transfer.
+* Once submitted, the file upload request is received by the **Actix Web server**, which is running on **A’s own machine/server**.
+
+---
+
+2. Temporary Storage on Sender's Server (A)
+
+* Upon receiving the file, the Actix handler stores the uploaded file temporarily **on disk**.
+* The exact location/path of this temporary storage is yet to be finalized, but it will reside on **User A’s server**.
+
+---
+
+3. Initiating File Transfer to B via gRPC
+
+* After storing the file, the Actix server triggers a **gRPC client**, which is responsible for sending the file to the next hop, i.e., **User B’s server**.
+* The file is not sent all at once — it is transferred **in chunks**.
+
+  * The **chunk size** is configurable and can be decided later.
+
+---
+
+4. Chunked Transfer Logic (A → B)
+
+* The gRPC client at A sends the **first chunk** of the file to B.
+* B receives the chunk and writes it to temporary storage **on B's server**.
+* Once B has successfully written the chunk, it sends an **acknowledgment** back to A.
+* Upon receiving the acknowledgment, A sends the **next chunk**.
+* This process continues until the entire file is transferred.
+
+---
+
+5. Forwarding from B to C (Same Chunked Logic)
+
+* Once the full file has been received and written by B:
+
+  * The gRPC component running on **B’s server** automatically starts the next transfer to **User C’s server**.
+  * The file transfer from B to C follows **the same chunked pattern** as A to B, including:
+
+    * Chunk-wise write
+    * Acknowledgments after each chunk
+    * Temporary storage on **C's server** as well.
+
+---
+
+6. Code Deployment & Consistency
+
+* The **entire application (UI, Actix server, gRPC client & server, chunk handling logic)** is present and deployed **on all three users’ servers** (A, B, and C).
+* Temporary files (during both upload and transfer) are always stored locally **on the respective user's server**.
