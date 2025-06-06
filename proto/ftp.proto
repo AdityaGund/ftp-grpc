@@ -3,24 +3,25 @@ syntax = "proto3";
 package ftp;
 
 service TransferService {
-    rpc Transfer (TransferRequest) returns (TransferResponse);
+    rpc Transfer (stream TransferRequest) returns (stream TransferResponse);
 }
 
 message TransferRequest {
     Metadata metadata = 1;
-    bytes content = 2;  // vec<u8> -> Attachment, 
-    // bytes message = 3;
+    bytes content = 2;  //Either attachment,msg,file; 
 }
 
 message Metadata {
     string transfer_id = 1;       
     string sender_bank_id = 2; // bank id
     string receiver_bank_id = 3; // receiver bank id
-
+    int32 chunk_index=4;
+    int32 total_chunks=5;
+    string timestamp = 6;  //IF REQUIRED WILL USE FOR LOGGING PURPOSE 
     oneof payload_type {
-        FileInfo file_info = 4;      
-        MessageInfo message_info = 5;
-        //! AttachmentInfo attachment_info = 6;
+        FileInfo file_info = 7;      
+        MessageInfo message_info = 8;
+        AttachmentInfo attachment_info =9;
     }
 }
 
@@ -32,8 +33,8 @@ message AttachmentInfo {
 message FileInfo {
     string name = 1;
     string path = 2;
-    uint64 size = 3; // Total size of the file in bytes
-    // string content_type = 4; // e.g., "image/jpeg", "application/pdf"
+    uint64 size = 3; // Total size of the file in byte
+    string content_type = 4; // e.g., "image/jpeg", "application/pdf"
 }
 
 message MessageInfo {
@@ -43,11 +44,17 @@ message MessageInfo {
 message TransferResponse {
     string transfer_id = 1; 
     Status status = 2;
-    string message = 3;     // e.g., "Successfully received by B", "Forwarded to C", "Error: C unavailable"
+    // string message = 3;     // e.g., "Successfully received by B", "Forwarded to C", "Error: C unavailable"
+    ErrorInfo error_info = 3;
 }
 
+message ErrorInfo{
+    string error_code=1;
+    string error_details=2;
+}
 enum Status {
     SUCCESS = 0; 
-    // IN_PROGRESS = 1;                  
+    IN_PROGRESS = 1;                  
     FAILURE = 2;
+    RETRY = 3; //RESEND THE CHUNK 
 }
