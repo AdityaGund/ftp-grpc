@@ -1,8 +1,13 @@
 use ftp::transfer_service_server::{TransferService, TransferServiceServer};
-use std::{env, error::Error, net::SocketAddr, path::Path};
-use tokio::fs;
-use tonic::transport::Server;
+use std::{env, error::Error, net::SocketAddr, path::{Path, PathBuf}, pin::Pin};
+use tokio::{fs, io::AsyncWriteExt};
+use tonic::{transport::Server, Request, Response, Status, Streaming};
 use dotenv::dotenv;
+use tokio_stream::{Stream, StreamExt};
+use tokio::sync::mpsc;
+use tokio_stream::wrappers::ReceiverStream;
+use crate::ftp::{TransferResponse};
+use uuid::Uuid;
 
 pub mod ftp {
     tonic::include_proto!("ftp");
@@ -13,40 +18,87 @@ pub struct FileTransferService {}
 
 #[tonic::async_trait]
 impl TransferService for FileTransferService {
+    type TransferStream = Pin<Box<dyn Stream<Item = Result<TransferResponse, Status>> + Send>>;
+
     async fn transfer(
         &self,
-        request: tonic::Request<ftp::TransferRequest>,
-    ) -> Result<tonic::Response<ftp::TransferResponse>, tonic::Status> {
-        let req = request.into_inner();
-        
-        // Get file info from metadata
-        let file_info = req.metadata
-            .as_ref()
-            .and_then(|m| match &m.payload_type {
-                Some(ftp::metadata::PayloadType::FileInfo(info)) => Some(info),
-                _ => None,
-            })
-            .ok_or_else(|| tonic::Status::invalid_argument("No file info provided"))?;
+        request: Request<Streaming<ftp::TransferRequest>>,
+    ) -> Result<Response<Self::TransferStream>, Status> {
+        let mut in_stream = request.into_inner();
+        let (tx, rx) = mpsc::channel(4);
 
-        let storage_dir = "destination_files";
-        fs::create_dir_all(storage_dir)
-            .await
-            .map_err(|e| tonic::Status::internal(format!("Failed to create storage directory: {}", e)))?;
+        tokio::spawn(async move {
+            let mut temp_file_path: Option<PathBuf> = None;
+            let mut file: Option<fs::File> = None;
+            let mut transfer_id = String::new();
 
-        let file_path = Path::new(storage_dir).join(&file_info.name);
-        fs::write(&file_path, req.content)
-            .await
-            .map_err(|e| tonic::Status::internal(format!("Failed to write file: {}", e)))?;
+            while let Some(result) = in_stream.next().await {
+                 match result {
+                    Ok(req) => {
+                        if let Some(metadata) = &req.metadata {
+                            if transfer_id.is_empty() {
+                                transfer_id = metadata.transfer_id.clone();
+                            }
 
-        println!("[DESTINATION] File saved to: {}", file_path.display());
+                            if file.is_none() {
+                                let file_info = match &metadata.payload_type {
+                                    Some(ftp::metadata::PayloadType::FileInfo(info)) => Some(info),
+                                    Some(ftp::metadata::PayloadType::AttachmentInfo(info)) => {
+                                        info.file_info.as_ref()
+                                    }
+                                    _ => None,
+                                };
 
-        let response = ftp::TransferResponse {
-            transfer_id: req.metadata.clone().map(|m| m.transfer_id).unwrap_or_default(),
-            status: ftp::Status::Success as i32,
-            message: format!("File {} received successfully at destination", file_info.name),
-        };
+                                if let Some(fi) = file_info {
+                                    let storage_dir = "destination_files";
+                                    let _ = fs::create_dir_all(storage_dir).await;
+                                    let path = Path::new(storage_dir).join(format!("{}-{}", Uuid::new_v4(), &fi.name));
+                                    temp_file_path = Some(path.clone());
+                                    file = Some(fs::File::create(path).await.unwrap());
+                                }
+                            }
 
-        Ok(tonic::Response::new(response))
+                            if let Some(f) = file.as_mut() {
+                                if f.write_all(&req.content).await.is_err() {
+                                    let _ = tx.send(Err(Status::internal("Failed to write file chunk"))).await;
+                                    return;
+                                }
+                            }
+
+                            let response = TransferResponse {
+                                transfer_id: metadata.transfer_id.clone(),
+                                status: ftp::Status::InProgress as i32,
+                                error_info: None
+                            };
+                            if tx.send(Ok(response)).await.is_err() {
+                                break;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        if tx.send(Err(e)).await.is_err() {
+                            break;
+                        }
+                    }
+                }
+            }
+            if let Some(f) = file.as_mut() {
+                let _ = f.flush().await;
+            }
+
+            let response = TransferResponse {
+                transfer_id,
+                status: ftp::Status::Success as i32,
+                error_info: None,
+            };
+            let _ = tx.send(Ok(response)).await;
+            if let Some(path) = &temp_file_path {
+                 println!("[DESTINATION] File saved to: {}", path.display());
+            }
+        });
+
+        let out_stream = ReceiverStream::new(rx);
+        Ok(Response::new(Box::pin(out_stream) as Self::TransferStream))
     }
 }
 
