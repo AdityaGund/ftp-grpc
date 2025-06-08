@@ -13,20 +13,28 @@ pub async fn upload(mut payload: Multipart) -> Result<impl Responder, AppError> 
     let mut file_path: Option<String> = None;
     let mut file_name: Option<String> = None;
     let mut message: Option<String> = None;
+    let mut destination: Option<String> = None;
 
-    fs::create_dir_all("./send_files").await?;
+    // fs::create_dir_all("./send_files").await?;
 
     while let Some(mut field) = payload.try_next().await? {
         if let Some(content_disposition) = field.content_disposition() {
+
+
+            println!("\n");
+            println!("content_disposition: {:?}", content_disposition.parameters);
+
             match content_disposition.get_name() {
                 Some("file") => {
+
+                    
                     let filename = content_disposition
                         .get_filename()
                         .unwrap_or("unknown_file")
                         .to_string();
 
-                    let unique_id = Uuid::new_v4().to_string();
-                    let temp_file_name = format!("{}-{}", unique_id, &filename);
+                    // let unique_id = Uuid::new_v4().to_string();
+                    let temp_file_name = format!("{}", &filename);
                     let path = format!("./send_files/{}", temp_file_name);
 
                     let mut f = File::create(&path).await?;
@@ -46,19 +54,29 @@ pub async fn upload(mut payload: Multipart) -> Result<impl Responder, AppError> 
                         message = Some(s);
                     }
                 }
+                Some("destination") => {
+                    let mut data = Vec::new();
+                    while let Some(chunk) = field.try_next().await? {
+                        data.extend_from_slice(&chunk);
+                    }
+                    if let Ok(s) = String::from_utf8(data) {
+                        destination = Some(s);
+                    }
+                }
                 _ => (),
             }
         }
     }
 
-    if file_path.is_none() && message.is_none() {
-        return Ok(HttpResponse::BadRequest().body("A file or a message must be provided."));
+    if file_path.is_none() || message.is_none() || destination.is_none() {
+        return Ok(HttpResponse::BadRequest().body("A file/message & destination must be provided."));
     }
 
     let response_json = serde_json::json!({
         "message": "Data transfer initiated.",
-        "file_name": file_name,
-        "sent_message": message,
+        "file_name": &file_path,
+        "sent_message": &message,
+        "destination": &destination,
     });
     
     task::spawn(async move {
@@ -75,6 +93,7 @@ pub async fn upload(mut payload: Multipart) -> Result<impl Responder, AppError> 
                     &mut client,
                     file_details,
                     message.as_deref(),
+                    destination.as_deref()
                 )
                 .await
                 {

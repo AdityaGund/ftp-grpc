@@ -22,7 +22,9 @@ pub async fn transfer_data(
     client: &mut TransferServiceClient<tonic::transport::Channel>,
     file_details: Option<(&str, &str)>, // (path, name)
     message_content: Option<&str>,
+    destination: Option<&str>,
 ) -> Result<(), AppError> {
+
     if file_details.is_none() && message_content.is_none() {
         return Err(AppError::ClientError(
             "No file or message content provided.".to_string(),
@@ -35,7 +37,7 @@ pub async fn transfer_data(
     let has_file = file_details.is_some();
     let has_message = message_content.is_some();
 
-    // Determine payload type based on what is being sent
+    // Determine payload type
     let payload_type = match (has_file, has_message) {
         (true, true) => {
             let (file_path, file_name) = file_details.unwrap();
@@ -79,7 +81,7 @@ pub async fn transfer_data(
         let metadata = Metadata {
             transfer_id: transfer_id.clone(),
             sender_bank_id: "BANK_A".to_string(),
-            receiver_bank_id: "BANK_C".to_string(),
+            receiver_bank_id: destination.unwrap().to_string(),
             chunk_index: 0,
             total_chunks: if has_file { 0 } else { 1 }, // Will be updated later for files
             timestamp: Utc::now().to_rfc3339(),
@@ -118,7 +120,7 @@ pub async fn transfer_data(
             let metadata = Metadata {
                 transfer_id: transfer_id.clone(),
                 sender_bank_id: "BANK_A".to_string(),
-                receiver_bank_id: "BANK_C".to_string(),
+                receiver_bank_id: destination.unwrap().to_string(),
                 chunk_index,
                 total_chunks,
                 timestamp: Utc::now().to_rfc3339(),
