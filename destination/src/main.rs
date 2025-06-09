@@ -106,7 +106,7 @@ impl TransferService for FileTransferService {
 async fn main() -> Result<(), Box<dyn Error>> {
     dotenv().ok();
 
-    let host = env::var("SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+    let host = env::var("SERVER_HOST").unwrap().to_string();
     let port = "50052".to_string();
     let addr = format!("{}:{}", host, port).parse::<SocketAddr>()?;
     

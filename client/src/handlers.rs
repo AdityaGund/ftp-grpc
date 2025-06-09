@@ -79,9 +79,10 @@ pub async fn upload(mut payload: Multipart) -> Result<impl Responder, AppError> 
         "destination": &destination,
     });
     
+    // connect to B server
     task::spawn(async move {
-        let host = std::env::var("SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
-        let port = std::env::var("SERVER_PORT").unwrap_or_else(|_| "50051".to_string());
+        let host = std::env::var("SERVER_HOST").unwrap().to_string();
+        let port = std::env::var("SERVER_PORT").unwrap().to_string();
         let url = format!("http://{}:{}", host, port);
 
         match TransferServiceClient::connect(url).await {
