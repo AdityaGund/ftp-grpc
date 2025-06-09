@@ -3,7 +3,7 @@ use std::{collections::HashMap, env, error::Error, net::SocketAddr, path::{Path,
 use tokio::{fs, io::{AsyncReadExt, AsyncWriteExt}};
 use tonic::{transport::Server, Request, Response, Status, Streaming};
 use dotenv::dotenv;
-use crate::ftp::{transfer_service_client::TransferServiceClient, ErrorInfo, TransferRequest, TransferResponse};
+use crate::ftp::{transfer_service_client::TransferServiceClient, TransferRequest, TransferResponse};
 use tokio_stream::{Stream, StreamExt};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
@@ -28,6 +28,35 @@ impl FileTransferService {
         Self { bank_mappings: mappings }
     }
 
+    // A new function to forward just a message
+    async fn forward_message(
+        &self,
+        message_content: Vec<u8>,
+        original_metadata: ftp::Metadata,
+        receiver_bank_id: &str,
+    ) -> Result<impl Stream<Item = Result<TransferResponse, Status>>, Status> {
+        let destination_url = self.bank_mappings
+            .get(receiver_bank_id)
+            .ok_or_else(|| tonic::Status::not_found(
+                format!("No server mapping found for bank: {}", receiver_bank_id)
+            ))?;
+
+        println!("[SERVER] Forwarding message to bank {} at {}", receiver_bank_id, destination_url);
+
+        let mut client = TransferServiceClient::connect(destination_url.clone())
+            .await
+            .map_err(|e| tonic::Status::internal(format!("Failed to connect to destination: {}", e)))?;
+        
+        let request = TransferRequest {
+            metadata: Some(original_metadata),
+            content: message_content,
+        };
+
+        let request_stream = tokio_stream::iter(vec![request]);
+        let response = client.transfer(request_stream).await?;
+        Ok(response.into_inner())
+    }
+
     // Function to forward the file to the destination by creating a new stream
     async fn forward_file(
         &self,
@@ -45,13 +74,17 @@ impl FileTransferService {
 
         let mut client = TransferServiceClient::connect(destination_url.clone())
             .await
-            .map_err(|e| tonic::Status::internal(format!("Failed to connect to destination: {}", e)))?;
+            .map_err(|e: tonic::transport::Error| tonic::Status::internal(format!("Failed to connect to destination: {}", e)))?;
         
         const CHUNK_SIZE: usize = 1024 * 1024; // 1MB
+
         let mut file = fs::File::open(file_path).await.map_err(|e| Status::internal(format!("Failed to open temp file for forwarding: {}", e)))?;
+
         let file_size = file.metadata().await.map_err(|e| Status::internal(format!("Failed to read temp file metadata: {}", e)))?.len();
+        
         let total_chunks = (file_size as f64 / CHUNK_SIZE as f64).ceil() as i32;
 
+        // write file as chunks
         let mut requests = Vec::new();
         for i in 0..total_chunks {
             let mut buffer = vec![0; CHUNK_SIZE];
@@ -69,6 +102,7 @@ impl FileTransferService {
             });
         }
 
+        // transfer to destination
         let request_stream = tokio_stream::iter(requests);
         let response = client.transfer(request_stream).await?;
         Ok(response.into_inner())
@@ -92,18 +126,25 @@ impl TransferService for FileTransferService {
             let mut file: Option<fs::File> = None;
             let mut receiver_bank_id: Option<String> = None;
             let mut full_metadata: Option<ftp::Metadata> = None;
-            let transfer_id = Uuid::new_v4().to_string();
+            let mut message_only_content: Option<Vec<u8>> = None;
 
             while let Some(result) = in_stream.next().await {
                 match result {
                     Ok(req) => {
-                        if let Some(metadata) = &req.metadata {
-                            if full_metadata.is_none() {
+                        if full_metadata.is_none() {
+                             if let Some(metadata) = &req.metadata {
                                 full_metadata = Some(metadata.clone());
                                 receiver_bank_id = Some(metadata.receiver_bank_id.clone());
-                            }
 
-                            if file.is_none() {
+                                if matches!(&metadata.payload_type, Some(ftp::metadata::PayloadType::MessageInfo(_))) {
+                                    message_only_content = Some(req.content);
+                                    break; 
+                                }
+                            }
+                        }
+
+                        if file.is_none() {
+                            if let Some(metadata) = &req.metadata {
                                 let file_info = match &metadata.payload_type {
                                     Some(ftp::metadata::PayloadType::FileInfo(info)) => Some(info),
                                     Some(ftp::metadata::PayloadType::AttachmentInfo(info)) => {
@@ -118,7 +159,7 @@ impl TransferService for FileTransferService {
                                         let _ = tx.send(Err(Status::internal("Could not create storage dir"))).await;
                                         return;
                                     }
-                                    let path = Path::new(storage_dir).join(format!("{}-{}", transfer_id, &fi.name));
+                                    let path = Path::new(storage_dir).join(format!("{}", &fi.name));
                                     temp_file_path = Some(path.clone());
                                     file = Some(fs::File::create(path).await.unwrap());
                                 }
@@ -126,9 +167,11 @@ impl TransferService for FileTransferService {
                         }
 
                         if let Some(f) = file.as_mut() {
-                            if f.write_all(&req.content).await.is_err() {
-                                let _ = tx.send(Err(Status::internal("Failed to write chunk to temp file"))).await;
-                                return;
+                            if !req.content.is_empty() {
+                                if f.write_all(&req.content).await.is_err() {
+                                    let _ = tx.send(Err(Status::internal("Failed to write chunk to temp file"))).await;
+                                    return;
+                                }
                             }
                         }
                     }
@@ -146,25 +189,39 @@ impl TransferService for FileTransferService {
                 }
             }
             
-            if let (Some(path), Some(receiver_id), Some(metadata)) = (temp_file_path, receiver_bank_id, full_metadata) {
-                 match self_clone.forward_file(&path, metadata, &receiver_id).await {
-                    Ok(mut forward_stream) => {
-                        while let Some(item) = forward_stream.next().await {
-                            if tx.send(item).await.is_err() {
-                                break;
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        let _ = tx.send(Err(e)).await;
-                    }
-                }
-                if fs::remove_file(path).await.is_err() {
-                     eprintln!("[SERVER] Warning: Failed to clean up temporary file");
-                }
-            } else {
-                 let _ = tx.send(Err(Status::invalid_argument("File or receiver information was missing"))).await;
-            }
+            if let (Some(receiver_id), Some(metadata)) = (receiver_bank_id, full_metadata) {
+                if let Some(message_content) = message_only_content {
+                   match self_clone.forward_message(message_content, metadata, &receiver_id).await {
+                       Ok(mut forward_stream) => {
+                           while let Some(item) = forward_stream.next().await {
+                               if tx.send(item).await.is_err() { break; }
+                           }
+                       }
+                       Err(e) => { let _ = tx.send(Err(e)).await; }
+                   }
+               } else if let Some(path) = temp_file_path {
+                   match self_clone.forward_file(&path, metadata, &receiver_id).await {
+                       Ok(mut forward_stream) => {
+                           while let Some(item) = forward_stream.next().await {
+                               if tx.send(item).await.is_err() {
+                                   break;
+                               }
+                           }
+                       }
+                       Err(e) => {
+                           let _ = tx.send(Err(e)).await;
+                       }
+                   }
+
+                   if fs::remove_file(path).await.is_err() {
+                       eprintln!("[SERVER] Warning: Failed to clean up temporary file");
+                   }
+               } else {
+                   let _ = tx.send(Err(Status::invalid_argument("No message or file content was found in the request."))).await;
+               }
+           } else {
+               let _ = tx.send(Err(Status::invalid_argument("Receiver information or metadata was missing"))).await;
+           }
         });
 
         let out_stream = ReceiverStream::new(rx);

@@ -15,3 +15,4 @@
 client/send_files
 server/received_files
 destination/destination_files
+client/temp

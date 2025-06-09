@@ -15,14 +15,13 @@ pub async fn upload(mut payload: Multipart) -> Result<impl Responder, AppError> 
     let mut message: Option<String> = None;
     let mut destination: Option<String> = None;
 
-    // fs::create_dir_all("./send_files").await?;
+    fs::create_dir_all("./temp").await?;
 
     while let Some(mut field) = payload.try_next().await? {
         if let Some(content_disposition) = field.content_disposition() {
 
 
-            println!("\n");
-            println!("content_disposition: {:?}", content_disposition.parameters);
+            // println!("[DEBUG] content_disposition: {:?}", content_disposition.parameters);
 
             match content_disposition.get_name() {
                 Some("file") => {
@@ -35,8 +34,9 @@ pub async fn upload(mut payload: Multipart) -> Result<impl Responder, AppError> 
 
                     // let unique_id = Uuid::new_v4().to_string();
                     let temp_file_name = format!("{}", &filename);
-                    let path = format!("./send_files/{}", temp_file_name);
+                    let path = format!("./temp/{}", temp_file_name);
 
+                    // store file temporarily on client-side
                     let mut f = File::create(&path).await?;
 
                     while let Some(chunk) = field.try_next().await? {
@@ -68,13 +68,13 @@ pub async fn upload(mut payload: Multipart) -> Result<impl Responder, AppError> 
         }
     }
 
-    if file_path.is_none() || message.is_none() || destination.is_none() {
-        return Ok(HttpResponse::BadRequest().body("A file/message & destination must be provided."));
-    }
+    // if file_path.is_none() && message.is_none() && destination.is_none() {
+    //     return Ok(HttpResponse::BadRequest().body("A file/message & destination must be provided."));
+    // }
 
     let response_json = serde_json::json!({
         "message": "Data transfer initiated.",
-        "file_name": &file_path,
+        "file_name": &file_name,
         "sent_message": &message,
         "destination": &destination,
     });

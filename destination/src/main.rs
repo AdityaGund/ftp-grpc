@@ -27,52 +27,82 @@ impl TransferService for FileTransferService {
         let mut in_stream = request.into_inner();
         let (tx, rx) = mpsc::channel(4);
 
+        let self_clone = self.clone();
+
         tokio::spawn(async move {
             let mut temp_file_path: Option<PathBuf> = None;
             let mut file: Option<fs::File> = None;
             let mut transfer_id = String::new();
+            let mut is_first_chunk = true;
+            const SEPARATOR: &[u8] = b"---MESSAGE_END---";
 
             while let Some(result) = in_stream.next().await {
                  match result {
-                    Ok(req) => {
+                    Ok(mut req) => {
+                        if is_first_chunk {
+                            is_first_chunk = false;
+                            if let Some(metadata) = &req.metadata {
+                                match &metadata.payload_type {
+                                    // if metadata is msg+file
+                                    Some(ftp::metadata::PayloadType::AttachmentInfo(_)) => {
+                                        if let Some(pos) = req.content.windows(SEPARATOR.len()).position(|window| window == SEPARATOR) {
+                                            let message = &req.content[..pos];
+                                            println!("[DESTINATION] Received message: {}", String::from_utf8_lossy(message));
+                                            req.content = req.content[pos + SEPARATOR.len()..].to_vec();
+                                        }
+                                    },
+                                    // if metadata is only msg
+                                    Some(ftp::metadata::PayloadType::MessageInfo(_)) => {
+                                        println!("[DESTINATION] Received message: {}", String::from_utf8_lossy(&req.content));
+                                        req.content.clear();
+                                    },
+                                    _ => {}
+                                }
+                            }
+                        }
+
                         if let Some(metadata) = &req.metadata {
-                            if transfer_id.is_empty() {
-                                transfer_id = metadata.transfer_id.clone();
-                            }
+                            if !matches!(&metadata.payload_type, Some(ftp::metadata::PayloadType::MessageInfo(_))) {
+                                if transfer_id.is_empty() {
+                                    transfer_id = metadata.transfer_id.clone();
+                                }
 
-                            if file.is_none() {
-                                let file_info = match &metadata.payload_type {
-                                    Some(ftp::metadata::PayloadType::FileInfo(info)) => Some(info),
-                                    Some(ftp::metadata::PayloadType::AttachmentInfo(info)) => {
-                                        info.file_info.as_ref()
+                                if file.is_none() {
+                                    let file_info = match &metadata.payload_type {
+                                        Some(ftp::metadata::PayloadType::FileInfo(info)) => Some(info),
+                                        Some(ftp::metadata::PayloadType::AttachmentInfo(info)) => {
+                                            info.file_info.as_ref()
+                                        }
+                                        _ => None,
+                                    };
+
+                                    if let Some(fi) = file_info {
+                                        let storage_dir = "destination_files";
+                                        let _ = fs::create_dir_all(storage_dir).await;
+                                        let path = Path::new(storage_dir).join(format!("{}", &fi.name));
+                                        temp_file_path = Some(path.clone());
+                                        file = Some(fs::File::create(path).await.unwrap());
                                     }
-                                    _ => None,
-                                };
+                                }
 
-                                if let Some(fi) = file_info {
-                                    let storage_dir = "destination_files";
-                                    let _ = fs::create_dir_all(storage_dir).await;
-                                    let path = Path::new(storage_dir).join(format!("{}-{}", Uuid::new_v4(), &fi.name));
-                                    temp_file_path = Some(path.clone());
-                                    file = Some(fs::File::create(path).await.unwrap());
+                                if let Some(f) = file.as_mut() {
+                                    if !req.content.is_empty() {
+                                        if f.write_all(&req.content).await.is_err() {
+                                            let _ = tx.send(Err(Status::internal("Failed to write file chunk"))).await;
+                                            return;
+                                        }
+                                    }
                                 }
                             }
+                        }
 
-                            if let Some(f) = file.as_mut() {
-                                if f.write_all(&req.content).await.is_err() {
-                                    let _ = tx.send(Err(Status::internal("Failed to write file chunk"))).await;
-                                    return;
-                                }
-                            }
-
-                            let response = TransferResponse {
-                                transfer_id: metadata.transfer_id.clone(),
-                                status: ftp::Status::InProgress as i32,
-                                error_info: None
-                            };
-                            if tx.send(Ok(response)).await.is_err() {
-                                break;
-                            }
+                        let response = TransferResponse {
+                            transfer_id: req.metadata.as_ref().map_or_else(String::new, |m| m.transfer_id.clone()),
+                            status: ftp::Status::InProgress as i32,
+                            error_info: None
+                        };
+                        if tx.send(Ok(response)).await.is_err() {
+                            break;
                         }
                     }
                     Err(e) => {
@@ -82,6 +112,7 @@ impl TransferService for FileTransferService {
                     }
                 }
             }
+
             if let Some(f) = file.as_mut() {
                 let _ = f.flush().await;
             }
@@ -93,7 +124,7 @@ impl TransferService for FileTransferService {
             };
             let _ = tx.send(Ok(response)).await;
             if let Some(path) = &temp_file_path {
-                 println!("[DESTINATION] File saved to: {}", path.display());
+                println!("[DESTINATION] File saved to: {}", path.display());
             }
         });
 

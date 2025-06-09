@@ -25,6 +25,7 @@ pub async fn transfer_data(
     destination: Option<&str>,
 ) -> Result<(), AppError> {
 
+    // can't do much without a file or a message
     if file_details.is_none() && message_content.is_none() {
         return Err(AppError::ClientError(
             "No file or message content provided.".to_string(),
@@ -37,7 +38,7 @@ pub async fn transfer_data(
     let has_file = file_details.is_some();
     let has_message = message_content.is_some();
 
-    // Determine payload type
+    // figure out what kind of data we're sending
     let payload_type = match (has_file, has_message) {
         (true, true) => {
             let (file_path, file_name) = file_details.unwrap();
@@ -76,36 +77,14 @@ pub async fn transfer_data(
         _ => None,
     };
 
-    // If there's a message, create the first request for it.
-    if let Some(content) = message_content {
-        let metadata = Metadata {
-            transfer_id: transfer_id.clone(),
-            sender_bank_id: "BANK_A".to_string(),
-            receiver_bank_id: destination.unwrap().to_string(),
-            chunk_index: 0,
-            total_chunks: if has_file { 0 } else { 1 }, // Will be updated later for files
-            timestamp: Utc::now().to_rfc3339(),
-            payload_type: payload_type.clone(),
-        };
-        requests.push(TransferRequest {
-            metadata: Some(metadata),
-            content: content.as_bytes().to_vec(),
-        });
-    }
+    let mut file_chunks: Vec<Vec<u8>> = Vec::new();
+    let mut total_chunks = 0;
 
-    // If there is a file, read it and create chunked requests.
+    // if there's a file, chop it up into chunks
     if let Some((file_path, _)) = file_details {
         let mut file = File::open(file_path).await?;
         let file_size = file.metadata().await?.len();
-        let total_chunks = (file_size as f64 / CHUNK_SIZE as f64).ceil() as i32;
-        let mut chunk_index = 0;
-
-        // If there was a message, update its total_chunks metadata
-        if let Some(first_req) = requests.get_mut(0) {
-            if let Some(metadata) = first_req.metadata.as_mut() {
-                metadata.total_chunks = total_chunks;
-            }
-        }
+        total_chunks = (file_size as f64 / CHUNK_SIZE as f64).ceil() as i32;
         
         loop {
             let mut buffer = vec![0; CHUNK_SIZE];
@@ -114,22 +93,52 @@ pub async fn transfer_data(
                 break;
             }
             buffer.truncate(n);
+            file_chunks.push(buffer);
+        }
+    }
+    
+    // if we have a message and a file, merge the message and the first chunk together
+    if has_message && has_file {
+        if let Some(msg_content) = message_content {
+            let mut first_chunk = msg_content.as_bytes().to_vec();
+            first_chunk.extend_from_slice(b"---MESSAGE_END---");
+            if !file_chunks.is_empty() {
+                first_chunk.extend_from_slice(&file_chunks.remove(0));
+            }
+            file_chunks.insert(0, first_chunk);
+        }
+    } else if has_message {
+        if let Some(msg_content) = message_content {
+            requests.push(TransferRequest {
+                metadata: Some(Metadata {
+                    transfer_id: transfer_id.clone(),
+                    sender_bank_id: "BANK_A".to_string(),
+                    receiver_bank_id: destination.unwrap().to_string(),
+                    chunk_index: 1,
+                    total_chunks: 1,
+                    timestamp: Utc::now().to_rfc3339(),
+                    payload_type: payload_type.clone(),
+                }),
+                content: msg_content.as_bytes().to_vec(),
+            });
+        }
+    }
 
-            chunk_index += 1;
-
+    // turn all our file chunks into requests
+    if !file_chunks.is_empty() {
+        for (i, chunk) in file_chunks.into_iter().enumerate() {
             let metadata = Metadata {
                 transfer_id: transfer_id.clone(),
                 sender_bank_id: "BANK_A".to_string(),
                 receiver_bank_id: destination.unwrap().to_string(),
-                chunk_index,
+                chunk_index: (i + 1) as i32,
                 total_chunks,
                 timestamp: Utc::now().to_rfc3339(),
                 payload_type: payload_type.clone(),
             };
-
             requests.push(TransferRequest {
                 metadata: Some(metadata),
-                content: buffer,
+                content: chunk,
             });
         }
     }
@@ -137,6 +146,7 @@ pub async fn transfer_data(
     let request_stream = iter(requests);
     let mut response_stream = client.transfer(request_stream).await?.into_inner();
 
+    // print out what the server says back
     while let Some(response) = response_stream.next().await {
         match response {
             Ok(res) => println!("[CLIENT] Received response: {:?}", res),
