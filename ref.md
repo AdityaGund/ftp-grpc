@@ -64,3 +64,11 @@ Internals of the File Transfer System
 
 * The **entire application (UI, Actix server, gRPC client & server, chunk handling logic)** is present and deployed **on all three users’ servers** (A, B, and C).
 * Temporary files (during both upload and transfer) are always stored locally **on the respective user's server**.
+
+---
+
+According to current architecture, we have three folders, `client`, `server` and `destination`. The client/destination folders will be present on the user's server. (i.e. the client will have both folders and the destination will have both the folders). The user will then run the client and destination code on different ports.
+
+> NOTE: we can run the client/destination on different channels (i.e. mpsc channels) and assign them different ports.
+
+There will only be ONE and only one server, the server code won't be elsewhere.
