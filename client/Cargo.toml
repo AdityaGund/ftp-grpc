@@ -3,6 +3,10 @@ name = "client"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "client"
+path = "src/lib.rs"
+
 [dependencies]
 tonic = "0.13.1"
 prost = "0.13.5"

@@ -11,7 +11,7 @@ pub mod ftp {
     tonic::include_proto!("ftp");
 }
 
-use ftp::{
+pub use ftp::{
     transfer_service_client::TransferServiceClient, AttachmentInfo, FileInfo, MessageInfo,
     Metadata, TransferRequest,
 };

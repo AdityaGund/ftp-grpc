@@ -7,13 +7,12 @@ use tokio_stream::{Stream, StreamExt};
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use crate::ftp::{TransferResponse};
-use uuid::Uuid;
 
 pub mod ftp {
     tonic::include_proto!("ftp");
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct FileTransferService {}
 
 #[tonic::async_trait]
@@ -27,7 +26,7 @@ impl TransferService for FileTransferService {
         let mut in_stream = request.into_inner();
         let (tx, rx) = mpsc::channel(4);
 
-        let self_clone = self.clone();
+        let _self_clone = self.clone();
 
         tokio::spawn(async move {
             let mut temp_file_path: Option<PathBuf> = None;
@@ -133,16 +132,16 @@ impl TransferService for FileTransferService {
     }
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+pub async fn run_destination() -> Result<(), Box<dyn Error>> {
     dotenv().ok();
+    
 
-    let host = env::var("SERVER_HOST").unwrap().to_string();
-    let port = "50052".to_string();
+    let host = env::var("DESTINATION_HOST").unwrap().to_string();
+    let port = env::var("DESTINATION_PORT").unwrap().to_string();
     let addr = format!("{}:{}", host, port).parse::<SocketAddr>()?;
     
     let service = FileTransferService::default();
-    println!("[DESTINATION] Server listening on {}", addr);
+    println!("[DESTINATION GRPC] Server listening on {}", addr);
 
     Server::builder()
         .add_service(TransferServiceServer::new(service))
