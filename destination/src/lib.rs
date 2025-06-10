@@ -1,18 +1,25 @@
-use ftp::transfer_service_server::{TransferService, TransferServiceServer};
-use std::{env, error::Error, net::SocketAddr, path::{Path, PathBuf}, pin::Pin};
-use tokio::{fs, io::AsyncWriteExt};
-use tonic::{transport::Server, Request, Response, Status, Streaming};
+use crate::ftp::TransferResponse;
 use dotenv::dotenv;
-use tokio_stream::{Stream, StreamExt};
+use ftp::transfer_service_server::{TransferService, TransferServiceServer};
+use std::{
+    env,
+    error::Error,
+    net::SocketAddr,
+    path::{Path, PathBuf},
+    pin::Pin,
+};
 use tokio::sync::mpsc;
+use tokio::{fs, io::AsyncWriteExt};
 use tokio_stream::wrappers::ReceiverStream;
-use crate::ftp::{TransferResponse};
+use tokio_stream::{Stream, StreamExt};
+use tonic::{Request, Response, Status, Streaming, transport::Server};
+// use uuid::Uuid;
 
 pub mod ftp {
     tonic::include_proto!("ftp");
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default)]
 pub struct FileTransferService {}
 
 #[tonic::async_trait]
@@ -26,7 +33,7 @@ impl TransferService for FileTransferService {
         let mut in_stream = request.into_inner();
         let (tx, rx) = mpsc::channel(4);
 
-        let _self_clone = self.clone();
+        // let self_clone = self.clone();
 
         tokio::spawn(async move {
             let mut temp_file_path: Option<PathBuf> = None;
@@ -36,7 +43,7 @@ impl TransferService for FileTransferService {
             const SEPARATOR: &[u8] = b"---MESSAGE_END---";
 
             while let Some(result) = in_stream.next().await {
-                 match result {
+                match result {
                     Ok(mut req) => {
                         if is_first_chunk {
                             is_first_chunk = false;
@@ -44,31 +51,47 @@ impl TransferService for FileTransferService {
                                 match &metadata.payload_type {
                                     // if metadata is msg+file
                                     Some(ftp::metadata::PayloadType::AttachmentInfo(_)) => {
-                                        if let Some(pos) = req.content.windows(SEPARATOR.len()).position(|window| window == SEPARATOR) {
+                                        if let Some(pos) = req
+                                            .content
+                                            .windows(SEPARATOR.len())
+                                            .position(|window| window == SEPARATOR)
+                                        {
                                             let message = &req.content[..pos];
-                                            println!("[DESTINATION] Received message: {}", String::from_utf8_lossy(message));
-                                            req.content = req.content[pos + SEPARATOR.len()..].to_vec();
+                                            println!(
+                                                "[DESTINATION] Received message: {}",
+                                                String::from_utf8_lossy(message)
+                                            );
+                                            req.content =
+                                                req.content[pos + SEPARATOR.len()..].to_vec();
                                         }
-                                    },
+                                    }
                                     // if metadata is only msg
                                     Some(ftp::metadata::PayloadType::MessageInfo(_)) => {
-                                        println!("[DESTINATION] Received message: {}", String::from_utf8_lossy(&req.content));
+                                        println!(
+                                            "[DESTINATION] Received message: {}",
+                                            String::from_utf8_lossy(&req.content)
+                                        );
                                         req.content.clear();
-                                    },
+                                    }
                                     _ => {}
                                 }
                             }
                         }
 
                         if let Some(metadata) = &req.metadata {
-                            if !matches!(&metadata.payload_type, Some(ftp::metadata::PayloadType::MessageInfo(_))) {
+                            if !matches!(
+                                &metadata.payload_type,
+                                Some(ftp::metadata::PayloadType::MessageInfo(_))
+                            ) {
                                 if transfer_id.is_empty() {
                                     transfer_id = metadata.transfer_id.clone();
                                 }
 
                                 if file.is_none() {
                                     let file_info = match &metadata.payload_type {
-                                        Some(ftp::metadata::PayloadType::FileInfo(info)) => Some(info),
+                                        Some(ftp::metadata::PayloadType::FileInfo(info)) => {
+                                            Some(info)
+                                        }
                                         Some(ftp::metadata::PayloadType::AttachmentInfo(info)) => {
                                             info.file_info.as_ref()
                                         }
@@ -78,7 +101,8 @@ impl TransferService for FileTransferService {
                                     if let Some(fi) = file_info {
                                         let storage_dir = "destination_files";
                                         let _ = fs::create_dir_all(storage_dir).await;
-                                        let path = Path::new(storage_dir).join(format!("{}", &fi.name));
+                                        let path =
+                                            Path::new(storage_dir).join(format!("{}", &fi.name));
                                         temp_file_path = Some(path.clone());
                                         file = Some(fs::File::create(path).await.unwrap());
                                     }
@@ -87,7 +111,11 @@ impl TransferService for FileTransferService {
                                 if let Some(f) = file.as_mut() {
                                     if !req.content.is_empty() {
                                         if f.write_all(&req.content).await.is_err() {
-                                            let _ = tx.send(Err(Status::internal("Failed to write file chunk"))).await;
+                                            let _ = tx
+                                                .send(Err(Status::internal(
+                                                    "Failed to write file chunk",
+                                                )))
+                                                .await;
                                             return;
                                         }
                                     }
@@ -96,9 +124,12 @@ impl TransferService for FileTransferService {
                         }
 
                         let response = TransferResponse {
-                            transfer_id: req.metadata.as_ref().map_or_else(String::new, |m| m.transfer_id.clone()),
+                            transfer_id: req
+                                .metadata
+                                .as_ref()
+                                .map_or_else(String::new, |m| m.transfer_id.clone()),
                             status: ftp::Status::InProgress as i32,
-                            error_info: None
+                            error_info: None,
                         };
                         if tx.send(Ok(response)).await.is_err() {
                             break;
@@ -134,12 +165,11 @@ impl TransferService for FileTransferService {
 
 pub async fn run_destination() -> Result<(), Box<dyn Error>> {
     dotenv().ok();
-    
 
     let host = env::var("DESTINATION_HOST").unwrap().to_string();
     let port = env::var("DESTINATION_PORT").unwrap().to_string();
     let addr = format!("{}:{}", host, port).parse::<SocketAddr>()?;
-    
+
     let service = FileTransferService::default();
     println!("[DESTINATION GRPC] Server listening on {}", addr);
 
@@ -149,4 +179,4 @@ pub async fn run_destination() -> Result<(), Box<dyn Error>> {
         .await?;
 
     Ok(())
-} 
+}
