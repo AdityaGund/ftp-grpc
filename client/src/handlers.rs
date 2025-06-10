@@ -1,18 +1,15 @@
 use actix_multipart::Multipart;
-use actix_web::{web, HttpResponse, Responder};
+use actix_web::{HttpResponse, Responder};
 use futures_util::TryStreamExt;
-use std::sync::Arc;
 use tokio::fs::{self, File};
 use tokio::io::AsyncWriteExt;
 use tokio::task;
+use uuid::Uuid;
 
 use crate::error::AppError;
 use crate::grpc_client::{self, ftp::transfer_service_client::TransferServiceClient};
 
-pub async fn upload(
-    mut payload: Multipart,
-    client: web::Data<Arc<TransferServiceClient<tonic::transport::Channel>>>,
-) -> Result<impl Responder, AppError> {
+pub async fn upload(mut payload: Multipart) -> Result<impl Responder, AppError> {
     let mut file_path: Option<String> = None;
     let mut file_name: Option<String> = None;
     let mut message: Option<String> = None;
@@ -22,8 +19,14 @@ pub async fn upload(
 
     while let Some(mut field) = payload.try_next().await? {
         if let Some(content_disposition) = field.content_disposition() {
+
+
+            // println!("[DEBUG] content_disposition: {:?}", content_disposition.parameters);
+
             match content_disposition.get_name() {
                 Some("file") => {
+
+                    
                     let filename = content_disposition
                         .get_filename()
                         .unwrap_or("unknown_file")
@@ -78,27 +81,35 @@ pub async fn upload(
     
     // connect to B server
     task::spawn(async move {
-        let mut client = client.get_ref().as_ref().clone();
-        let file_details = file_path
-            .as_ref()
-            .zip(file_name.as_ref())
-            .map(|(p, n)| (p.as_str(), n.as_str()));
+        let host = std::env::var("SERVER_HOST").unwrap().to_string();
+        let port = std::env::var("SERVER_PORT").unwrap().to_string();
+        let url = format!("http://{}:{}", host, port);
 
-        if let Err(e) = grpc_client::transfer_data(
-            &mut client,
-            file_details,
-            message.as_deref(),
-            destination.as_deref(),
-        )
-        .await
-        {
-            eprintln!("Failed to send data via gRPC: {}", e);
-        } else {
-            println!("Data transfer stream finished.");
-            if let Some(path) = &file_path {
-                if let Err(e) = fs::remove_file(path).await {
-                    eprintln!("Failed to remove temporary file '{}': {}", path, e);
+        match TransferServiceClient::connect(url).await {
+            Ok(mut client) => {
+                let file_details = file_path.as_ref().zip(file_name.as_ref())
+                    .map(|(p, n)| (p.as_str(), n.as_str()));
+
+                if let Err(e) = grpc_client::transfer_data(
+                    &mut client,
+                    file_details,
+                    message.as_deref(),
+                    destination.as_deref()
+                )
+                .await
+                {
+                    eprintln!("Failed to send data via gRPC: {}", e);
+                } else {
+                    println!("Data transfer stream finished.");
+                    if let Some(path) = &file_path {
+                        if let Err(e) = fs::remove_file(path).await {
+                            eprintln!("Failed to remove temporary file '{}': {}", path, e);
+                        }
+                    }
                 }
+            }
+            Err(e) => {
+                eprintln!("Failed to connect to gRPC server: {}", e);
             }
         }
     });

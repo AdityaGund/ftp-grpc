@@ -34,7 +34,7 @@ pub struct FileTransferService {
 impl FileTransferService {
     pub fn new() -> Self {
         let mut mappings = HashMap::new();
-        mappings.insert("BANK_C".to_string(), "http://127.0.0.1:50052".to_string());
+        mappings.insert("BANK_C".to_string(), "192.168.164.1:50052".to_string());
         mappings.insert("BANK_D".to_string(), "http://127.0.0.1:50053".to_string());
 
         Self {
