@@ -1,6 +1,7 @@
 use crate::ftp::TransferResponse;
 use dotenv::dotenv;
 use ftp::transfer_service_server::{TransferService, TransferServiceServer};
+use uuid::serde;
 use std::{
     env,
     error::Error,
@@ -40,6 +41,7 @@ impl TransferService for FileTransferService {
             let mut file: Option<fs::File> = None;
             let mut transfer_id = String::new();
             let mut is_first_chunk = true;
+            let mut message = String::new();
             const SEPARATOR: &[u8] = b"---MESSAGE_END---";
 
             while let Some(result) = in_stream.next().await {
@@ -56,20 +58,19 @@ impl TransferService for FileTransferService {
                                             .windows(SEPARATOR.len())
                                             .position(|window| window == SEPARATOR)
                                         {
-                                            let message = &req.content[..pos];
-                                            println!(
-                                                "[DESTINATION] Received message: {}",
-                                                String::from_utf8_lossy(message)
-                                            );
+                                            message = String::from_utf8_lossy(&req.content[..pos])
+                                                .to_string();
+                                            println!("[DESTINATION] Received message: {}", &message);
                                             req.content =
                                                 req.content[pos + SEPARATOR.len()..].to_vec();
                                         }
                                     }
                                     // if metadata is only msg
                                     Some(ftp::metadata::PayloadType::MessageInfo(_)) => {
+                                        message = String::from_utf8_lossy(&req.content).to_string();
                                         println!(
                                             "[DESTINATION] Received message: {}",
-                                            String::from_utf8_lossy(&req.content)
+                                            &message
                                         );
                                         req.content.clear();
                                     }
@@ -129,6 +130,7 @@ impl TransferService for FileTransferService {
                                 .as_ref()
                                 .map_or_else(String::new, |m| m.transfer_id.clone()),
                             status: ftp::Status::InProgress as i32,
+                            message: message.clone(),
                             error_info: None,
                         };
                         if tx.send(Ok(response)).await.is_err() {
@@ -147,9 +149,11 @@ impl TransferService for FileTransferService {
                 let _ = f.flush().await;
             }
 
+
             let response = TransferResponse {
                 transfer_id,
                 status: ftp::Status::Success as i32,
+                message,
                 error_info: None,
             };
             let _ = tx.send(Ok(response)).await;
@@ -165,6 +169,7 @@ impl TransferService for FileTransferService {
 
 pub async fn run_destination() -> Result<(), Box<dyn Error>> {
     dotenv().ok();
+
 
     let host = env::var("DESTINATION_HOST").unwrap().to_string();
     let port = env::var("DESTINATION_PORT").unwrap().to_string();

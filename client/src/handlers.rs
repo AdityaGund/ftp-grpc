@@ -87,6 +87,7 @@ pub async fn upload(mut payload: Multipart) -> Result<impl Responder, AppError> 
 
         match TransferServiceClient::connect(url).await {
             Ok(mut client) => {
+                println!("[CLIENT] connected to server");
                 let file_details = file_path.as_ref().zip(file_name.as_ref())
                     .map(|(p, n)| (p.as_str(), n.as_str()));
 

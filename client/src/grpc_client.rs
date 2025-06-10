@@ -79,7 +79,6 @@ pub async fn transfer_data(
 
     let mut file_chunks: Vec<Vec<u8>> = Vec::new();
     let mut total_chunks = 0;
-
     // if there's a file, chop it up into chunks
     if let Some((file_path, _)) = file_details {
         let mut file = File::open(file_path).await?;

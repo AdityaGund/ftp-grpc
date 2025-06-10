@@ -12,9 +12,3 @@ curl -F "file=@C:/Users/paras/Desktop/rust/projects/ftp-grpc/client/send_files/m
 ```
 
 > to test only file/msg, just remove the parameter from the curl command.
-
----
-
-## to-do
-
-- tokio spawn, select

@@ -44,8 +44,8 @@ message MessageInfo {
 message TransferResponse {
     string transfer_id = 1; 
     Status status = 2;
-    // string message = 3;     // e.g., "Successfully received by B", "Forwarded to C", "Error: C unavailable"
-    ErrorInfo error_info = 3;
+    string message = 3;     // e.g., "Successfully received by B", "Forwarded to C", "Error: C unavailable"
+    ErrorInfo error_info = 4;
 }
 
 message ErrorInfo{
