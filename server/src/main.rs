@@ -34,7 +34,7 @@ pub struct FileTransferService {
 impl FileTransferService {
     pub fn new() -> Self {
         let mut mappings = HashMap::new();
-        mappings.insert("BANK_C".to_string(), "http://192.168.164.16:50052".to_string());
+        mappings.insert("BANK_C".to_string(), "http://192.168.164.1:50052".to_string());
         mappings.insert("BANK_D".to_string(), "http://127.0.0.1:50052".to_string());
 
         Self {
@@ -236,6 +236,7 @@ impl TransferService for FileTransferService {
                 }
             }
 
+            // forward the msg/file to destination
             if let (Some(receiver_id), Some(metadata)) = (receiver_bank_id, full_metadata) {
                 if let Some(message_content) = message_only_content {
                     match self_clone
@@ -244,6 +245,7 @@ impl TransferService for FileTransferService {
                     {
                         Ok(mut forward_stream) => {
                             while let Some(item) = forward_stream.next().await {
+                                // send destinations response to client
                                 if tx.send(item).await.is_err() {
                                     break;
                                 }
@@ -257,6 +259,7 @@ impl TransferService for FileTransferService {
                     match self_clone.forward_file(&path, metadata, &receiver_id).await {
                         Ok(mut forward_stream) => {
                             while let Some(item) = forward_stream.next().await {
+                                // send destinations response to client
                                 if tx.send(item).await.is_err() {
                                     break;
                                 }

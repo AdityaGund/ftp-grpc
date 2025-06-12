@@ -1,4 +1,5 @@
 import { type ReactNode } from 'react';
+import { ThemeToggle } from './ThemeToggle';
 
 interface LayoutProps {
   children: ReactNode;
@@ -6,12 +7,12 @@ interface LayoutProps {
 
 export function Layout({ children }: LayoutProps) {
   return (
-    <div className="min-h-svh flex flex-col">
-      <header className="bg-primary text-primary-foreground py-4 px-6">
+    <div className="min-h-svh flex flex-col bg-background">
+      <header className="border-b py-4 px-6">
         <div className="container mx-auto flex items-center justify-between">
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-3">
             <svg
-              className="h-6 w-6"
+              className="h-6 w-6 text-primary"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -26,6 +27,7 @@ export function Layout({ children }: LayoutProps) {
             </svg>
             <h1 className="text-xl font-bold">FTP-gRPC Transfer</h1>
           </div>
+          <ThemeToggle />
         </div>
       </header>
       

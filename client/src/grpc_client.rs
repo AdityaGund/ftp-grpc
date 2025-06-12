@@ -2,7 +2,7 @@ use chrono::Utc;
 use std::path::Path;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
-use tokio_stream::{iter, StreamExt};
+use tokio_stream::{iter, Stream, StreamExt};
 use uuid::Uuid;
 
 use crate::error::AppError;
@@ -13,7 +13,7 @@ pub mod ftp {
 
 pub use ftp::{
     transfer_service_client::TransferServiceClient, AttachmentInfo, FileInfo, MessageInfo,
-    Metadata, TransferRequest,
+    Metadata, TransferRequest, TransferResponse,
 };
 
 const CHUNK_SIZE: usize = 1024 * 1024; // 1 MB
@@ -23,7 +23,8 @@ pub async fn transfer_data(
     file_details: Option<(&str, &str)>, // (path, name)
     message_content: Option<&str>,
     destination: Option<&str>,
-) -> Result<(), AppError> {
+) -> Result<tonic::Streaming<TransferResponse>, AppError> {
+// ) -> Result<(), AppError> {
 
     // can't do much without a file or a message
     if file_details.is_none() && message_content.is_none() {
@@ -143,15 +144,17 @@ pub async fn transfer_data(
     }
 
     let request_stream = iter(requests);
-    let mut response_stream = client.transfer(request_stream).await?.into_inner();
+    let response_stream = client.transfer(request_stream).await?.into_inner();
 
     // print out what the server says back
-    while let Some(response) = response_stream.next().await {
-        match response {
-            Ok(res) => println!("[CLIENT] Received response: {:?}", res),
-            Err(err) => eprintln!("[CLIENT] Error in response stream: {}", err),
-        }
-    }
-
-    Ok(())
+    // while let Some(response) = response_stream.next().await {
+    //     match response {
+    //         Ok(res) => println!("[CLIENT] Received response: {:?}", res),
+    //         Err(err) => eprintln!("[CLIENT] Error in response stream: {}", err),
+    //     }
+    // }
+    
+    
+    Ok(response_stream)
+    // Ok(())
 }

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { useState, useRef, type ChangeEvent, type FormEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -5,7 +6,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { toast } from 'sonner';
-import { uploadFile } from '@/lib/grpc-client';
+import { uploadFile } from '@/lib/api';
+import { Upload, User, SendHorizontal, X, RotateCcw } from 'lucide-react';
 
 export function FileUpload() {
   const [file, setFile] = useState<File | null>(null);
@@ -82,18 +84,22 @@ export function FileUpload() {
   };
 
   return (
-    <Card className="w-full max-w-md">
-      <CardHeader>
-        <CardTitle>File Transfer</CardTitle>
+    <Card className="w-full max-w-md border border-border shadow-sm">
+      <CardHeader className="border-b border-border/50 pb-4">
+        <CardTitle className="flex items-center gap-2">
+          <Upload className="h-5 w-5 text-primary" />
+          <span>File Transfer</span>
+        </CardTitle>
         <CardDescription>
-          Send files or messages securely via gRPC
+          Transfer files or messages securely via gRPC
         </CardDescription>
       </CardHeader>
-      <CardContent>
-        <form onSubmit={handleSubmit} className="space-y-4">
+      <CardContent className="pt-6">
+        <form onSubmit={handleSubmit} className="space-y-5">
           <div className="space-y-2">
-            <label htmlFor="destination" className="text-sm font-medium">
-              Destination
+            <label htmlFor="destination" className="text-sm font-medium flex items-center gap-2">
+              <User className="h-4 w-4 text-muted-foreground" />
+              <span>Destination</span>
             </label>
             <Input
               id="destination"
@@ -102,30 +108,51 @@ export function FileUpload() {
               onChange={(e) => setDestination(e.target.value)}
               disabled={uploading}
               required
+              className="bg-background"
             />
           </div>
           
           <div className="space-y-2">
-            <label htmlFor="file" className="text-sm font-medium">
-              File
+            <label htmlFor="file" className="text-sm font-medium flex items-center gap-2">
+              <Upload className="h-4 w-4 text-muted-foreground" />
+              <span>File</span>
             </label>
-            <Input
-              ref={fileInputRef}
-              id="file"
-              type="file"
-              onChange={handleFileChange}
-              disabled={uploading}
-            />
+            <div className="relative">
+              <Input
+                ref={fileInputRef}
+                id="file"
+                type="file"
+                onChange={handleFileChange}
+                disabled={uploading}
+                className="bg-background"
+              />
+              {file && (
+                <Button 
+                  size="icon" 
+                  variant="ghost" 
+                  className="absolute right-2 top-1/2 -translate-y-1/2 h-6 w-6"
+                  onClick={() => {
+                    setFile(null);
+                    if (fileInputRef.current) fileInputRef.current.value = '';
+                  }}
+                  type="button"
+                  disabled={uploading}
+                >
+                  <X className="h-3 w-3" />
+                </Button>
+              )}
+            </div>
             {file && (
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-muted-foreground">
                 Selected: {file.name} ({(file.size / 1024).toFixed(2)} KB)
               </p>
             )}
           </div>
           
           <div className="space-y-2">
-            <label htmlFor="message" className="text-sm font-medium">
-              Message
+            <label htmlFor="message" className="text-sm font-medium flex items-center gap-2">
+              <SendHorizontal className="h-4 w-4 text-muted-foreground" />
+              <span>Message</span>
             </label>
             <Textarea
               id="message"
@@ -134,23 +161,38 @@ export function FileUpload() {
               onChange={(e) => setMessage(e.target.value)}
               disabled={uploading}
               rows={3}
+              className="bg-background resize-none"
             />
           </div>
           
           {uploading && (
             <div className="space-y-2">
-              <label className="text-sm font-medium">Upload Progress</label>
+              <div className="flex justify-between items-center">
+                <label className="text-sm font-medium">Upload Progress</label>
+                <span className="text-xs text-muted-foreground">{progress}%</span>
+              </div>
               <Progress value={progress} className="h-2" />
-              <p className="text-xs text-right">{progress}%</p>
             </div>
           )}
           
-          <div className="flex space-x-2">
-            <Button type="submit" disabled={uploading} className="flex-1">
+          <div className="flex space-x-3 pt-2">
+            <Button 
+              type="submit" 
+              disabled={uploading} 
+              className="flex-1 gap-2"
+            >
               {uploading ? 'Uploading...' : 'Send'}
+              <SendHorizontal className="h-4 w-4" />
             </Button>
-            <Button type="button" variant="outline" onClick={handleReset} disabled={uploading}>
+            <Button 
+              type="button" 
+              variant="outline" 
+              onClick={handleReset} 
+              disabled={uploading}
+              className="gap-2"
+            >
               Reset
+              <RotateCcw className="h-4 w-4" />
             </Button>
           </div>
         </form>

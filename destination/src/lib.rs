@@ -47,6 +47,8 @@ impl TransferService for FileTransferService {
             while let Some(result) = in_stream.next().await {
                 match result {
                     Ok(mut req) => {
+
+                        // first chunk to check for message
                         if is_first_chunk {
                             is_first_chunk = false;
                             if let Some(metadata) = &req.metadata {
@@ -65,6 +67,7 @@ impl TransferService for FileTransferService {
                                                 req.content[pos + SEPARATOR.len()..].to_vec();
                                         }
                                     }
+
                                     // if metadata is only msg
                                     Some(ftp::metadata::PayloadType::MessageInfo(_)) => {
                                         message = String::from_utf8_lossy(&req.content).to_string();
@@ -74,12 +77,17 @@ impl TransferService for FileTransferService {
                                         );
                                         req.content.clear();
                                     }
+
+                                    // only file, no msg
                                     _ => {}
                                 }
                             }
                         }
 
+                        // after first chunk
                         if let Some(metadata) = &req.metadata {
+
+                            // only check for files
                             if !matches!(
                                 &metadata.payload_type,
                                 Some(ftp::metadata::PayloadType::MessageInfo(_))
@@ -88,7 +96,10 @@ impl TransferService for FileTransferService {
                                     transfer_id = metadata.transfer_id.clone();
                                 }
 
+                                // write file on disk (for first chunk)
                                 if file.is_none() {
+
+                                    // file name
                                     let file_info = match &metadata.payload_type {
                                         Some(ftp::metadata::PayloadType::FileInfo(info)) => {
                                             Some(info)
@@ -99,6 +110,7 @@ impl TransferService for FileTransferService {
                                         _ => None,
                                     };
 
+                                    // create directory
                                     if let Some(fi) = file_info {
                                         let storage_dir = "destination_files";
                                         let _ = fs::create_dir_all(storage_dir).await;
@@ -109,6 +121,7 @@ impl TransferService for FileTransferService {
                                     }
                                 }
 
+                                // write file (after first chunk)
                                 if let Some(f) = file.as_mut() {
                                     if !req.content.is_empty() {
                                         if f.write_all(&req.content).await.is_err() {
@@ -130,9 +143,10 @@ impl TransferService for FileTransferService {
                                 .as_ref()
                                 .map_or_else(String::new, |m| m.transfer_id.clone()),
                             status: ftp::Status::InProgress as i32,
-                            message: message.clone(),
+                            // message: message.clone(),
                             error_info: None,
                         };
+
                         if tx.send(Ok(response)).await.is_err() {
                             break;
                         }
@@ -153,7 +167,7 @@ impl TransferService for FileTransferService {
             let response = TransferResponse {
                 transfer_id,
                 status: ftp::Status::Success as i32,
-                message,
+                // message,
                 error_info: None,
             };
             let _ = tx.send(Ok(response)).await;
