@@ -45,7 +45,6 @@ message TransferResponse {
     string transfer_id = 1; 
     Status status = 2;
     // string message = 3;     // e.g., "Successfully received by B", "Forwarded to C", "Error: C unavailable"
-    int32 chunk_index=3;
     ErrorInfo error_info = 4;
 }
 

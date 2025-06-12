@@ -12,7 +12,7 @@ use tokio::sync::mpsc;
 use tokio::{fs, io::AsyncWriteExt};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::{Stream, StreamExt};
-use tonic::{Request, Response, Status, Streaming, transport::Server};
+use tonic::{metadata, transport::Server, Request, Response, Status, Streaming};
 // use uuid::Uuid;
 
 pub mod ftp {
@@ -129,6 +129,7 @@ impl TransferService for FileTransferService {
                                 .as_ref()
                                 .map_or_else(String::new, |m| m.transfer_id.clone()),
                             status: ftp::Status::InProgress as i32,
+                            chunk_index:1,  //hardcoding right now
                             error_info: None,
                         };
                         if tx.send(Ok(response)).await.is_err() {
@@ -150,6 +151,7 @@ impl TransferService for FileTransferService {
             let response = TransferResponse {
                 transfer_id,
                 status: ftp::Status::Success as i32,
+                chunk_index:1, //hardcoding right now
                 error_info: None,
             };
             let _ = tx.send(Ok(response)).await;
