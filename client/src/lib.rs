@@ -1,9 +1,9 @@
-use actix_web::{App, HttpServer, web};
+use actix_web::{App, HttpServer};
 use dotenv::dotenv;
 use std::env;
 use std::io::Result;
-use std::sync::Arc;
-use crate::grpc_client::TransferServiceClient;
+// use std::sync::Arc;
+// use crate::grpc_client::TransferServiceClient;
 use actix_cors::Cors;
 
 pub mod error;

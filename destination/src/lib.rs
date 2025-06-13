@@ -1,13 +1,13 @@
 use crate::ftp::TransferResponse;
 use dotenv::dotenv;
 use ftp::transfer_service_server::{TransferService, TransferServiceServer};
-use uuid::serde;
+// use uuid::serde;
 use std::{
     env,
     error::Error,
     net::SocketAddr,
     path::{Path, PathBuf},
-    pin::Pin,
+    pin::Pin, ptr::null,
 };
 use tokio::sync::mpsc;
 use tokio::{fs, io::AsyncWriteExt};
@@ -144,7 +144,6 @@ impl TransferService for FileTransferService {
                                 .as_ref()
                                 .map_or_else(String::new, |m| m.transfer_id.clone()),
                             status: ftp::Status::InProgress as i32,
-                            // message: message.clone(),
                             error_info: Some(ErrorInfo {
                                 error_code: "DESTINATION".to_string(),
                                 error_details: String::new(),
@@ -173,7 +172,6 @@ impl TransferService for FileTransferService {
             let response = TransferResponse {
                 transfer_id,
                 status: ftp::Status::Success as i32,
-                // message,
                 error_info: Some(ErrorInfo {
                     error_code: "DESTINATION".to_string(),
                     error_details: String::new(),
