@@ -2,8 +2,9 @@ use chrono::Utc;
 use std::path::Path;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
-use tokio_stream::{iter, Stream, StreamExt};
+use tokio_stream::{Stream, StreamExt};
 use uuid::Uuid;
+use std::pin::Pin;
 
 use crate::error::AppError;
 
@@ -17,14 +18,14 @@ pub use ftp::{
 };
 
 const CHUNK_SIZE: usize = 1024 * 1024; // 1 MB
+const MAX_RETRIES: u8 = 3;
 
 pub async fn transfer_data(
     client: &mut TransferServiceClient<tonic::transport::Channel>,
     file_details: Option<(&str, &str)>, // (path, name)
     message_content: Option<&str>,
     destination: Option<&str>,
-) -> Result<tonic::Streaming<TransferResponse>, AppError> {
-// ) -> Result<(), AppError> {
+) -> Result<(), AppError> {
 
     // can't do much without a file or a message
     if file_details.is_none() && message_content.is_none() {
@@ -34,30 +35,25 @@ pub async fn transfer_data(
     }
 
     let transfer_id = Uuid::new_v4().to_string();
-    let mut requests = vec![];
 
+    // === Build metadata (reused for every chunk) =====================
     let has_file = file_details.is_some();
     let has_message = message_content.is_some();
 
-    // figure out what kind of data we're sending
     let payload_type = match (has_file, has_message) {
         (true, true) => {
             let (file_path, file_name) = file_details.unwrap();
             let file_size = Path::new(file_path).metadata()?.len();
             let message_length = message_content.unwrap().len() as u64;
-            Some(ftp::metadata::PayloadType::AttachmentInfo(
-                AttachmentInfo {
-                    file_info: Some(FileInfo {
-                        name: file_name.to_string(),
-                        path: file_path.to_string(),
-                        size: file_size,
-                        content_type: "application/octet-stream".to_string(),
-                    }),
-                    message_info: Some(MessageInfo {
-                        length: message_length,
-                    }),
-                },
-            ))
+            Some(ftp::metadata::PayloadType::AttachmentInfo(AttachmentInfo {
+                file_info: Some(FileInfo {
+                    name: file_name.to_string(),
+                    path: file_path.to_string(),
+                    size: file_size,
+                    content_type: "application/octet-stream".to_string(),
+                }),
+                message_info: Some(MessageInfo { length: message_length }),
+            }))
         }
         (true, false) => {
             let (file_path, file_name) = file_details.unwrap();
@@ -71,21 +67,20 @@ pub async fn transfer_data(
         }
         (false, true) => {
             let message_length = message_content.unwrap().len() as u64;
-            Some(ftp::metadata::PayloadType::MessageInfo(MessageInfo {
-                length: message_length,
-            }))
+            Some(ftp::metadata::PayloadType::MessageInfo(MessageInfo { length: message_length }))
         }
         _ => None,
     };
 
+    // Split the file into chunks =================================================
     let mut file_chunks: Vec<Vec<u8>> = Vec::new();
     let mut total_chunks = 0;
-    // if there's a file, chop it up into chunks
     if let Some((file_path, _)) = file_details {
         let mut file = File::open(file_path).await?;
         let file_size = file.metadata().await?.len();
         total_chunks = (file_size as f64 / CHUNK_SIZE as f64).ceil() as i32;
-        
+
+        let mut i = 1;
         loop {
             let mut buffer = vec![0; CHUNK_SIZE];
             let n = file.read(&mut buffer).await?;
@@ -94,12 +89,16 @@ pub async fn transfer_data(
             }
             buffer.truncate(n);
             file_chunks.push(buffer);
+            println!("[CLIENT] created chunk {i}");
+            i += 1;
         }
     }
-    
-    // if we have a message and a file, merge the message and the first chunk together
+
+    // Combine message with first chunk when both present -------------------------
+    let mut standalone_message: Option<Vec<u8>> = None;
     if has_message && has_file {
         if let Some(msg_content) = message_content {
+            // making sure message comes first and then file.
             let mut first_chunk = msg_content.as_bytes().to_vec();
             first_chunk.extend_from_slice(b"---MESSAGE_END---");
             if !file_chunks.is_empty() {
@@ -109,52 +108,130 @@ pub async fn transfer_data(
         }
     } else if has_message {
         if let Some(msg_content) = message_content {
-            requests.push(TransferRequest {
-                metadata: Some(Metadata {
-                    transfer_id: transfer_id.clone(),
-                    sender_bank_id: "BANK_A".to_string(),
-                    receiver_bank_id: destination.unwrap().to_string(),
-                    chunk_index: 1,
-                    total_chunks: 1,
-                    timestamp: Utc::now().to_rfc3339(),
-                    payload_type: payload_type.clone(),
-                }),
-                content: msg_content.as_bytes().to_vec(),
-            });
+            standalone_message = Some(msg_content.as_bytes().to_vec());
         }
     }
 
-    // turn all our file chunks into requests
+    // === Build a channel-backed request stream =================================
+    use tokio::sync::mpsc;
+    let (mut req_tx, req_rx) = mpsc::channel::<TransferRequest>(1);
+    let response_stream = client
+        .transfer(tokio_stream::wrappers::ReceiverStream::new(req_rx))
+        .await?
+        .into_inner();
+
+    // send_with_retry requires multiple mutable references to response stream
+    // the fn can be called from different contexts (i.e. for standalone message or file)
+    let mut response_stream: Pin<Box<dyn Stream<Item = Result<TransferResponse, tonic::Status>> + Send>> = Box::pin(response_stream);
+
+    async fn send_with_retry(
+        req_tx: &mut mpsc::Sender<TransferRequest>,
+        req: TransferRequest,
+        responses: &mut Pin<Box<dyn Stream<Item = Result<TransferResponse, tonic::Status>> + Send>>,
+    ) -> Result<(), AppError> {
+        for attempt in 1..=MAX_RETRIES {
+            if attempt > 1 {
+                println!("[CLIENT] Retry attempt {} for chunk {}", attempt, req.metadata.as_ref().map_or(0, |m| m.chunk_index));
+            }
+
+            // Send chunk
+            req_tx
+                // req.clone() -> could eat memory
+                .send(req.clone())
+                .await
+                .map_err(|e| AppError::ClientError(format!("Failed to send request over stream: {e}")))?;
+
+            // Wait for ACK
+            match responses.next().await {
+                Some(Ok(ack)) => {
+                    let origin = ack
+                        .error_info
+                        .as_ref()
+                        .map(|e| e.error_code.as_str())
+                        .unwrap_or("UNKNOWN");
+                    println!("[CLIENT] ACK received from {}. status: {} (chunk {} )", origin, ack.status, ack.transfer_id);
+                    return Ok(());
+                }
+                Some(Err(e)) => {
+                    if attempt == MAX_RETRIES {
+                        return Err(AppError::ClientError(format!("Stream error after retries: {e}")));
+                    } else {
+                        println!("[CLIENT] Error on chunk send: {e}. Retrying...");
+                    }
+                }
+                None => {
+                    if attempt == MAX_RETRIES {
+                        return Err(AppError::ClientError("Stream closed unexpectedly: MAX_RETRIES".into()));
+                    } else {
+                        println!("[CLIENT] Stream closed unexpectedly, retrying...");
+                    }
+                }
+            }
+        }
+        Err(AppError::ClientError("Exceeded max retries".into()))
+    }
+
+    // === Send message-only if applicable =======================================
+    if let Some(msg_bytes) = standalone_message {
+        let meta = Metadata {
+            transfer_id: transfer_id.clone(),
+            sender_bank_id: "BANK_A".to_string(),
+            receiver_bank_id: destination.unwrap().to_string(),
+            chunk_index: 1,
+            total_chunks: 1,
+            timestamp: Utc::now().to_rfc3339(),
+            payload_type: payload_type.clone(),
+        };
+        let req = TransferRequest {
+            metadata: Some(meta),
+            content: msg_bytes,
+        };
+        send_with_retry(&mut req_tx, req, &mut response_stream).await?;
+    }
+
+    // === Send file chunks sequentially =========================================
     if !file_chunks.is_empty() {
-        for (i, chunk) in file_chunks.into_iter().enumerate() {
-            let metadata = Metadata {
+        for (idx, chunk) in file_chunks.into_iter().enumerate() {
+            let meta = Metadata {
                 transfer_id: transfer_id.clone(),
                 sender_bank_id: "BANK_A".to_string(),
                 receiver_bank_id: destination.unwrap().to_string(),
-                chunk_index: (i + 1) as i32,
+                chunk_index: (idx + 1) as i32,
                 total_chunks,
                 timestamp: Utc::now().to_rfc3339(),
                 payload_type: payload_type.clone(),
             };
-            requests.push(TransferRequest {
-                metadata: Some(metadata),
-                content: chunk,
-            });
+            println!("[CLIENT] Sending chunk {}/{}", idx + 1, total_chunks);
+            let req = TransferRequest {
+                metadata: Some(meta),
+                content: chunk.clone(),
+            };
+
+            send_with_retry(&mut req_tx, req, &mut response_stream).await?;
         }
     }
 
-    let request_stream = iter(requests);
-    let response_stream = client.transfer(request_stream).await?.into_inner();
+    drop(req_tx);
 
-    // print out what the server says back
-    // while let Some(response) = response_stream.next().await {
-    //     match response {
-    //         Ok(res) => println!("[CLIENT] Received response: {:?}", res),
-    //         Err(err) => eprintln!("[CLIENT] Error in response stream: {}", err),
-    //     }
-    // }
-    
-    
-    Ok(response_stream)
-    // Ok(())
+    // Wait for the final SUCCESS response from the server -----------------------
+    while let Some(res) = response_stream.next().await {
+        match res {
+            Ok(resp) => {
+                let origin = resp
+                    .error_info
+                    .as_ref()
+                    .map(|e| e.error_code.as_str())
+                    .unwrap_or("UNKNOWN");
+                println!("[CLIENT] ACK received from {}. status: {}", origin, resp.status);
+                if resp.status == ftp::Status::Success as i32 || resp.status == ftp::Status::Failure as i32 {
+                    break;
+                }
+            }
+            Err(e) => {
+                return Err(AppError::TonicStatus(e));
+            }
+        }
+    }
+
+    Ok(())
 }

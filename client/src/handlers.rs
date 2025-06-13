@@ -15,7 +15,7 @@ use crate::error::{self, AppError};
 use crate::grpc_client::TransferResponse;
 use crate::grpc_client::{self, ftp::transfer_service_client::TransferServiceClient};
 
-pub async fn upload(mut payload: Multipart) -> Result<tonic::Streaming<TransferResponse>, AppError> {
+pub async fn upload(mut payload: Multipart) -> Result<HttpResponse, AppError> {
     let mut file_path: Option<String> = None;
     let mut file_name: Option<String> = None;
     let mut message: Option<String> = None;
@@ -81,7 +81,7 @@ pub async fn upload(mut payload: Multipart) -> Result<tonic::Streaming<TransferR
         "destination": &destination,
     });
 
-    let stream_result: Result<tonic::Streaming<TransferResponse>, AppError>;
+    let transfer_result: Result<(), AppError>;
 
     // connect to B server
     // task::spawn(async move {
@@ -95,19 +95,16 @@ pub async fn upload(mut payload: Multipart) -> Result<tonic::Streaming<TransferR
                 let file_details = file_path.as_ref().zip(file_name.as_ref())
                     .map(|(p, n)| (p.as_str(), n.as_str()));
 
-                stream_result = grpc_client::transfer_data(
+                transfer_result = grpc_client::transfer_data(
                     &mut client,
                     file_details,
                     message.as_deref(),
                     destination.as_deref(),
                 ).await;
 
-                // let _response_stream = match stream_result {
-                //     Ok(stream) => println!("[CLIENT] here: {:?}", stream),
-                //     Err(e) => {
-                //         return Err(e)
-                //     }
-                // };
+                if let Err(e) = transfer_result {
+                    eprintln!("[CLIENT] transfer failed: {}", e);
+                }
 
                 // if let Err(e) = grpc_client::transfer_data(
                 //     &mut client,
@@ -115,7 +112,6 @@ pub async fn upload(mut payload: Multipart) -> Result<tonic::Streaming<TransferR
                 //     message.as_deref(),
                 //     destination.as_deref()
                 // )
-                // .await
                 // {
                 //     eprintln!("Failed to send data via gRPC: {}", e);
                 // } else {
@@ -134,5 +130,5 @@ pub async fn upload(mut payload: Multipart) -> Result<tonic::Streaming<TransferR
         }
     // });
 
-    Ok(stream_result.unwrap())
+    Ok(HttpResponse::Ok().json(response_json))
 }

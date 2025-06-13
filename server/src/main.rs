@@ -4,6 +4,9 @@ use crate::ftp::{
 use chrono::Utc;
 use dotenv::dotenv;
 use ftp::transfer_service_server::{TransferService, TransferServiceServer};
+use ftp::ErrorInfo;
+// use std::fs::File;
+// use std::sync::mpsc::Sender;
 use std::{
     collections::HashMap,
     env,
@@ -20,7 +23,9 @@ use tokio::{
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::{Stream, StreamExt};
 use tonic::{Request, Response, Status, Streaming, transport::Server};
-use uuid::Uuid;
+
+// const MAX_RETRIES: u8 = 3;
+// const CHUNK_SIZE: usize = 1024 * 1024; // 1 MB
 
 pub mod ftp {
     tonic::include_proto!("ftp");
@@ -42,7 +47,6 @@ impl FileTransferService {
         }
     }
 
-    // A new function to forward just a message
     async fn forward_message(
         &self,
         message_content: Vec<u8>,
@@ -77,13 +81,14 @@ impl FileTransferService {
         Ok(response.into_inner())
     }
 
-    // Function to forward the file to the destination by creating a new stream
     async fn forward_file(
         &self,
         file_path: &Path,
         original_metadata: ftp::Metadata,
         receiver_bank_id: &str,
-    ) -> Result<impl Stream<Item = Result<TransferResponse, Status>>, Status> {
+        // Sender used to propagate ACKs back to the original client connection. -> tx
+        ack_sender: mpsc::Sender<Result<TransferResponse, Status>>,
+    ) -> Result<(), Status> {
         let destination_url = self.bank_mappings.get(receiver_bank_id).ok_or_else(|| {
             tonic::Status::not_found(format!(
                 "No server mapping found for bank: {}",
@@ -96,13 +101,14 @@ impl FileTransferService {
             receiver_bank_id, destination_url
         );
 
-        let mut client = TransferServiceClient::connect(destination_url.clone())
+        let mut destination = TransferServiceClient::connect(destination_url.clone())
             .await
             .map_err(|e: tonic::transport::Error| {
                 tonic::Status::internal(format!("Failed to connect to destination: {}", e))
             })?;
 
         const CHUNK_SIZE: usize = 1024 * 1024; // 1MB
+        const MAX_RETRIES: u8 = 3;
 
         let mut file = fs::File::open(file_path).await.map_err(|e| {
             Status::internal(format!("Failed to open temp file for forwarding: {}", e))
@@ -116,8 +122,16 @@ impl FileTransferService {
 
         let total_chunks = (file_size as f64 / CHUNK_SIZE as f64).ceil() as i32;
 
-        // write file as chunks
-        let mut requests = Vec::new();
+        // req_tx: push chunks, req_rx: outbound request stream
+        let (req_tx, req_rx) = mpsc::channel::<TransferRequest>(1);
+        let mut response_stream= destination
+            // When tonic polls this stream it blocks until our code drops the next chunk into req_tx.
+            .transfer(ReceiverStream::new(req_rx))
+            .await?
+            .into_inner();
+
+
+        // Loop through file chunks sequentially, waiting for ACK from destination before sending next chunk
         for i in 0..total_chunks {
             let mut buffer = vec![0; CHUNK_SIZE];
             let n = file.read(&mut buffer).await.map_err(|e| {
@@ -130,16 +144,74 @@ impl FileTransferService {
             metadata.total_chunks = total_chunks;
             metadata.timestamp = Utc::now().to_rfc3339();
 
-            requests.push(TransferRequest {
+            let req = TransferRequest {
                 metadata: Some(metadata),
                 content: buffer,
-            });
+            };
+
+            println!("[SERVER] Forwarding chunk {}/{}", i + 1, total_chunks);
+            for attempt in 1..=MAX_RETRIES {
+                if attempt > 1 {
+                    println!("[SERVER] Retry attempt {} for chunk {}", attempt, i + 1);
+                }
+
+                // Send the chunk
+                req_tx
+                    .send(req.clone())
+                    .await
+                    .map_err(|e| Status::internal(format!("Failed to send chunk to destination: {}", e)))?;
+
+                // Wait for ACK before proceeding
+                match response_stream.next().await {
+                    Some(Ok(ack)) => {
+                        println!("[SERVER] ACK received from destination for transfer {} (status = {})", ack.transfer_id, ack.status);
+                        let _ = ack_sender.send(Ok(ack)).await;
+                        println!("[SERVER] ACK forwarded to client");
+                        break; // success, move to next chunk
+                    }
+                    Some(Err(e)) => {
+                        println!("[SERVER] Error while waiting for ACK: {e}");
+                        if attempt == MAX_RETRIES {
+                            let _ = ack_sender.send(Err(e.clone())).await;
+                            return Err(e);
+                        } else {
+                            continue; // retry
+                        }
+                    }
+                    None => {
+                        if attempt == MAX_RETRIES {
+                            return Err(Status::internal("Destination closed stream unexpectedly"));
+                        } else {
+                            println!("[SERVER] Stream closed unexpectedly, retrying chunk {}", i + 1);
+                            continue;
+                        }
+                    }
+                }
+            }
         }
 
-        // transfer to destination
-        let request_stream = tokio_stream::iter(requests);
-        let response = client.transfer(request_stream).await?;
-        Ok(response.into_inner())
+        // All chunks sent, close sender side
+        drop(file); // ensure file handle closed
+        drop(req_tx);
+
+        // Await the final SUCCESS response from destination and propagate it
+        while let Some(res) = response_stream.next().await {
+            // Propagate whatever we received to the original client
+            let terminate = matches!(
+                &res,
+                Ok(ok_res)
+                    if ok_res.status == ftp::Status::Success as i32
+                        || ok_res.status == ftp::Status::Failure as i32
+            );
+
+            let _ = ack_sender.send(res).await;
+
+            if terminate {
+                break;
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -151,7 +223,9 @@ impl TransferService for FileTransferService {
         &self,
         request: Request<Streaming<TransferRequest>>,
     ) -> Result<Response<Self::TransferStream>, Status> {
+        // tokio_stream::wrappers::ReceiverStream::new(req_rx) from grpc_client.rs
         let mut in_stream = request.into_inner();
+        // here tx sends the ACKs, rx receives it, converts it a type that the client understands and then sends it to client (return)
         let (tx, rx) = mpsc::channel(10);
         let self_clone = self.clone();
 
@@ -217,6 +291,21 @@ impl TransferService for FileTransferService {
                                         .await;
                                     return;
                                 }
+                                // After successfully persisting the chunk, send an ACK back to the client.
+                                let ack = TransferResponse {
+                                    transfer_id: req
+                                        .metadata
+                                        .as_ref()
+                                        .map_or_else(String::new, |m| m.transfer_id.clone()),
+                                    status: ftp::Status::InProgress as i32,
+                                    error_info: Some(ErrorInfo {
+                                        error_code: "SERVER".to_string(),
+                                        error_details: String::new(),
+                                    }),
+                                };
+
+                                println!("[SERVER] ACK sent to client for transfer {}", ack.transfer_id);
+                                let _ = tx.send(Ok(ack)).await;
                             }
                         }
                     }
@@ -256,14 +345,9 @@ impl TransferService for FileTransferService {
                         }
                     }
                 } else if let Some(path) = temp_file_path {
-                    match self_clone.forward_file(&path, metadata, &receiver_id).await {
-                        Ok(mut forward_stream) => {
-                            while let Some(item) = forward_stream.next().await {
-                                // send destinations response to client
-                                if tx.send(item).await.is_err() {
-                                    break;
-                                }
-                            }
+                    match self_clone.forward_file(&path, metadata, &receiver_id, tx.clone()).await {
+                        Ok(_) => {
+                            // No need to send response back to client as the file transfer is complete
                         }
                         Err(e) => {
                             let _ = tx.send(Err(e)).await;

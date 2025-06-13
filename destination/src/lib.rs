@@ -14,6 +14,7 @@ use tokio::{fs, io::AsyncWriteExt};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::{Stream, StreamExt};
 use tonic::{Request, Response, Status, Streaming, transport::Server};
+use ftp::ErrorInfo;
 // use uuid::Uuid;
 
 pub mod ftp {
@@ -144,8 +145,13 @@ impl TransferService for FileTransferService {
                                 .map_or_else(String::new, |m| m.transfer_id.clone()),
                             status: ftp::Status::InProgress as i32,
                             // message: message.clone(),
-                            error_info: None,
+                            error_info: Some(ErrorInfo {
+                                error_code: "DESTINATION".to_string(),
+                                error_details: String::new(),
+                            }),
                         };
+
+                        println!("[DESTINATION] ACK sent for transfer {} (IN_PROGRESS)", response.transfer_id);
 
                         if tx.send(Ok(response)).await.is_err() {
                             break;
@@ -168,8 +174,12 @@ impl TransferService for FileTransferService {
                 transfer_id,
                 status: ftp::Status::Success as i32,
                 // message,
-                error_info: None,
+                error_info: Some(ErrorInfo {
+                    error_code: "DESTINATION".to_string(),
+                    error_details: String::new(),
+                }),
             };
+            println!("[DESTINATION] Final ACK sent for transfer {} (SUCCESS)", response.transfer_id);
             let _ = tx.send(Ok(response)).await;
             if let Some(path) = &temp_file_path {
                 println!("[DESTINATION] File saved to: {}", path.display());
