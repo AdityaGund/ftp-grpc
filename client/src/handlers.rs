@@ -2,7 +2,7 @@
 
 use actix_multipart::Multipart;
 // use actix_web::web::Bytes;
-use actix_web::{HttpResponse};
+use actix_web::{HttpResponse, web, Responder};
 use futures_util::{TryStreamExt};
 // use serde::de::value::Error;
 use tokio::fs::{self, File};
@@ -10,12 +10,18 @@ use tokio::io::AsyncWriteExt;
 // use tokio::task;
 // use tonic::{Response, Streaming};
 // use uuid::Uuid;
+use bytes::Bytes;
+use tokio_stream::wrappers::BroadcastStream;
+use futures_util::StreamExt;
+use std::convert::Infallible;
+use crate::AppState;
 
 use crate::error::{self, AppError};
 // use crate::grpc_client::TransferResponse;
 use crate::grpc_client::{self, ftp::transfer_service_client::TransferServiceClient};
+use serde_json;
 
-pub async fn upload(mut payload: Multipart) -> Result<HttpResponse, AppError> {
+pub async fn upload(state: web::Data<AppState>, mut payload: Multipart) -> Result<HttpResponse, AppError> {
     let mut file_path: Option<String> = None;
     let mut file_name: Option<String> = None;
     let mut message: Option<String> = None;
@@ -42,7 +48,7 @@ pub async fn upload(mut payload: Multipart) -> Result<HttpResponse, AppError> {
                     let mut f = File::create(&path).await?;
 
                     while let Some(chunk) = field.try_next().await? {
-                        f.write_all(&chunk).await?;
+                        f.write_all(chunk.as_ref()).await?;
                     }
                     file_path = Some(path);
                     file_name = Some(filename);
@@ -50,7 +56,7 @@ pub async fn upload(mut payload: Multipart) -> Result<HttpResponse, AppError> {
                 Some("message") => {
                     let mut data = Vec::new();
                     while let Some(chunk) = field.try_next().await? {
-                        data.extend_from_slice(&chunk);
+                        data.extend_from_slice(chunk.as_ref());
                     }
                     if let Ok(s) = String::from_utf8(data) {
                         message = Some(s);
@@ -59,7 +65,7 @@ pub async fn upload(mut payload: Multipart) -> Result<HttpResponse, AppError> {
                 Some("destination") => {
                     let mut data = Vec::new();
                     while let Some(chunk) = field.try_next().await? {
-                        data.extend_from_slice(&chunk);
+                        data.extend_from_slice(chunk.as_ref());
                     }
                     if let Ok(s) = String::from_utf8(data) {
                         destination = Some(s);
@@ -75,7 +81,7 @@ pub async fn upload(mut payload: Multipart) -> Result<HttpResponse, AppError> {
     // }
 
     let response_json = serde_json::json!({
-        "message": "Data transfer initiated.",
+        "message": "Data transfer success.",
         "file_name": &file_name,
         "sent_message": &message,
         "destination": &destination,
@@ -100,9 +106,11 @@ pub async fn upload(mut payload: Multipart) -> Result<HttpResponse, AppError> {
                     file_details,
                     message.as_deref(),
                     destination.as_deref(),
+                    Some(state.notifier.clone()),
                 ).await;
 
                 if let Err(e) = transfer_result {
+                    // response_json["message"] = "Data transfer failed";
                     eprintln!("[CLIENT] transfer failed: {}", e);
                 }
 
@@ -131,4 +139,26 @@ pub async fn upload(mut payload: Multipart) -> Result<HttpResponse, AppError> {
     // });
 
     Ok(HttpResponse::Ok().json(response_json))
+}
+
+pub async fn events_stream(state: web::Data<AppState>) -> impl Responder {
+    let rx = state.notifier.subscribe();
+    let stream = BroadcastStream::new(rx).map(|msg| match msg {
+        Ok(resp) => {
+            let origin = resp
+                    .error_info
+                    .as_ref()
+                    .map(|e| e.error_code.as_str())
+                    .unwrap_or("UNKNOWN");
+            let json = format!("{{\"transfer_id\":\"{}\", \"origin\":\"{}\", \"status\":{}}}", resp.transfer_id, origin, resp.status);
+            Ok::<Bytes, Infallible>(Bytes::from(format!("data: {}\n\n", json)))
+        },
+        Err(_) => Ok(Bytes::from("event: ping\n\n")),
+    });
+
+    HttpResponse::Ok()
+        .insert_header(("Content-Type", "text/event-stream"))
+        .insert_header(("Cache-Control", "no-cache"))
+        .insert_header(("Connection", "keep-alive"))
+        .streaming(stream)
 }

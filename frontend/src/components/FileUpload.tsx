@@ -1,13 +1,17 @@
-/* eslint-disable @typescript-eslint/no-unused-vars */
-import { useState, useRef, type ChangeEvent, type FormEvent } from 'react';
+import { useState, useRef, type ChangeEvent, type FormEvent, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { toast } from 'sonner';
-import { uploadFile } from '@/lib/api';
+import { openEventStream, uploadFile } from '@/lib/api';
 import { Upload, User, SendHorizontal, X, RotateCcw } from 'lucide-react';
+
+interface Ack {
+  transfer_id: string;
+  status: number;
+}
 
 export function FileUpload() {
   const [file, setFile] = useState<File | null>(null);
@@ -37,25 +41,20 @@ export function FileUpload() {
     }
     
     setUploading(true);
-    
-    // Simulate progress 
-    const progressInterval = setInterval(() => {
-      setProgress((prev) => {
-        if (prev >= 95) {
-          clearInterval(progressInterval);
-          return prev;
-        }
-        return prev + 5;
-      });
-    }, 200);
+    setProgress(0);
     
     try {
-      const response = await uploadFile(file, message || null, destination);
-      clearInterval(progressInterval);
-      setProgress(100);
+      setProgress(0);
+      const response = await uploadFile(
+        file,
+        message || null,
+        destination,
+        (pct) => setProgress(pct)
+      );
       
       toast.success('Transfer completed successfully!');
       console.log('Upload response:', response);
+      setProgress(100);
       
       // Reset form
       setFile(null);
@@ -64,7 +63,6 @@ export function FileUpload() {
         fileInputRef.current.value = '';
       }
     } catch (error) {
-      clearInterval(progressInterval);
       setProgress(0);
       toast.error('Transfer failed. Please try again.');
       console.error('Upload error:', error);
@@ -83,6 +81,25 @@ export function FileUpload() {
     }
   };
 
+  useEffect(() => {
+    const dispose = openEventStream((msg) => {
+      if (typeof msg !== 'object' || msg === null) return;
+      const ack = msg as Ack;
+      switch (ack.status) {
+        case 0:
+          toast.success(`Transfer ${ack.transfer_id} completed`);
+          break;
+        case 2:
+          toast.error(`Transfer ${ack.transfer_id} failed`);
+          break;
+        default:
+          // For IN_PROGRESS and others just log.
+          console.log('[ACK]', ack);
+      }
+    });
+    return dispose;
+  }, []);
+
   return (
     <Card className="w-full max-w-md border border-border shadow-sm">
       <CardHeader className="border-b border-border/50 pb-4">
@@ -94,7 +111,7 @@ export function FileUpload() {
           Transfer files or messages securely via gRPC
         </CardDescription>
       </CardHeader>
-      <CardContent className="pt-6">
+      <CardContent>
         <form onSubmit={handleSubmit} className="space-y-5">
           <div className="space-y-2">
             <label htmlFor="destination" className="text-sm font-medium flex items-center gap-2">
