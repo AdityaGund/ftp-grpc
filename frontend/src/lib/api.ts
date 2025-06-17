@@ -23,18 +23,18 @@ export function uploadFile(
   });
 }
 
-export function openEventStream(onMsg: (ev: unknown) => void) {
-  const es = new EventSource(`${BASE}/events`);
-  es.onmessage = (e) => {
-    try {
+// export function openEventStream(onMsg: (ev: unknown) => void) {
+//   const es = new EventSource(`${BASE}/events`);
+//   es.onmessage = (e) => {
+//     try {
 
-      // console.log(e.data);
-      const payload = JSON.parse(e.data);
-      // console.log('[ACK]', payload);
-      onMsg(payload);
-    } catch (err) {
-      console.error('Failed to parse event data', err);
-    }
-  };
-  return () => es.close();
-}
+//       // console.log(e.data);
+//       const payload = JSON.parse(e.data);
+//       // console.log('[ACK]', payload);
+//       onMsg(payload);
+//     } catch (err) {
+//       console.error('Failed to parse event data', err);
+//     }
+//   };
+//   return () => es.close();
+// }

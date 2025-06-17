@@ -1,17 +1,18 @@
-import { useState, useRef, type ChangeEvent, type FormEvent, useEffect } from 'react';
+import { useState, useRef, type ChangeEvent, type FormEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { toast } from 'sonner';
-import { openEventStream, uploadFile } from '@/lib/api';
+// import { openEventStream, uploadFile } from '@/lib/api';
+import { uploadFile } from '@/lib/api';
 import { Upload, User, SendHorizontal, X, RotateCcw } from 'lucide-react';
 
-interface Ack {
-  transfer_id: string;
-  status: number;
-}
+// interface Ack {
+//   transfer_id: string;
+//   status: number;
+// }
 
 export function FileUpload() {
   const [file, setFile] = useState<File | null>(null);
@@ -81,24 +82,24 @@ export function FileUpload() {
     }
   };
 
-  useEffect(() => {
-    const dispose = openEventStream((msg) => {
-      if (typeof msg !== 'object' || msg === null) return;
-      const ack = msg as Ack;
-      switch (ack.status) {
-        case 0:
-          toast.success(`Transfer ${ack.transfer_id} completed`);
-          break;
-        case 2:
-          toast.error(`Transfer ${ack.transfer_id} failed`);
-          break;
-        default:
-          // For IN_PROGRESS and others just log.
-          console.log('[ACK]', ack);
-      }
-    });
-    return dispose;
-  }, []);
+  // useEffect(() => {
+  //   const dispose = openEventStream((msg) => {
+  //     if (typeof msg !== 'object' || msg === null) return;
+  //     const ack = msg as Ack;
+  //     switch (ack.status) {
+  //       case 0:
+  //         toast.success(`Transfer ${ack.transfer_id} completed`);
+  //         break;
+  //       case 2:
+  //         toast.error(`Transfer ${ack.transfer_id} failed`);
+  //         break;
+  //       default:
+  //         // For IN_PROGRESS and others just log.
+  //         console.log('[ACK]', ack);
+  //     }
+  //   });
+  //   return dispose;
+  // }, []);
 
   return (
     <Card className="w-full max-w-md border border-border shadow-sm">

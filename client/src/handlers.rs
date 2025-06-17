@@ -2,7 +2,8 @@
 
 use actix_multipart::Multipart;
 // use actix_web::web::Bytes;
-use actix_web::{HttpResponse, web, Responder};
+// use actix_web::{HttpResponse, web, Responder};
+use actix_web::{HttpResponse};
 use futures_util::{TryStreamExt};
 // use serde::de::value::Error;
 use tokio::fs::{self, File};
@@ -10,18 +11,19 @@ use tokio::io::AsyncWriteExt;
 // use tokio::task;
 // use tonic::{Response, Streaming};
 // use uuid::Uuid;
-use bytes::Bytes;
-use tokio_stream::wrappers::BroadcastStream;
-use futures_util::StreamExt;
-use std::convert::Infallible;
-use crate::AppState;
+// use bytes::Bytes;
+// use tokio_stream::wrappers::BroadcastStream;
+// use futures_util::StreamExt;
+// use std::convert::Infallible;
+// use crate::AppState;
 
 use crate::error::{self, AppError};
 // use crate::grpc_client::TransferResponse;
 use crate::grpc_client::{self, ftp::transfer_service_client::TransferServiceClient};
 use serde_json;
 
-pub async fn upload(state: web::Data<AppState>, mut payload: Multipart) -> Result<HttpResponse, AppError> {
+// pub async fn upload(state: web::Data<AppState>, mut payload: Multipart) -> Result<HttpResponse, AppError> {
+pub async fn upload( mut payload: Multipart) -> Result<HttpResponse, AppError> {
     let mut file_path: Option<String> = None;
     let mut file_name: Option<String> = None;
     let mut message: Option<String> = None;
@@ -106,7 +108,7 @@ pub async fn upload(state: web::Data<AppState>, mut payload: Multipart) -> Resul
                     file_details,
                     message.as_deref(),
                     destination.as_deref(),
-                    Some(state.notifier.clone()),
+                    // Some(state.notifier.clone()),
                 ).await;
 
                 if let Err(e) = transfer_result {
@@ -141,24 +143,24 @@ pub async fn upload(state: web::Data<AppState>, mut payload: Multipart) -> Resul
     Ok(HttpResponse::Ok().json(response_json))
 }
 
-pub async fn events_stream(state: web::Data<AppState>) -> impl Responder {
-    let rx = state.notifier.subscribe();
-    let stream = BroadcastStream::new(rx).map(|msg| match msg {
-        Ok(resp) => {
-            let origin = resp
-                    .error_info
-                    .as_ref()
-                    .map(|e| e.error_code.as_str())
-                    .unwrap_or("UNKNOWN");
-            let json = format!("{{\"transfer_id\":\"{}\", \"origin\":\"{}\", \"status\":{}}}", resp.transfer_id, origin, resp.status);
-            Ok::<Bytes, Infallible>(Bytes::from(format!("data: {}\n\n", json)))
-        },
-        Err(_) => Ok(Bytes::from("event: ping\n\n")),
-    });
+// pub async fn events_stream(state: web::Data<AppState>) -> impl Responder {
+//     let rx = state.notifier.subscribe();
+//     let stream = BroadcastStream::new(rx).map(|msg| match msg {
+//         Ok(resp) => {
+//             let origin = resp
+//                     .error_info
+//                     .as_ref()
+//                     .map(|e| e.error_code.as_str())
+//                     .unwrap_or("UNKNOWN");
+//             let json = format!("{{\"transfer_id\":\"{}\", \"origin\":\"{}\", \"status\":{}}}", resp.transfer_id, origin, resp.status);
+//             Ok::<Bytes, Infallible>(Bytes::from(format!("data: {}\n\n", json)))
+//         },
+//         Err(_) => Ok(Bytes::from("event: ping\n\n")),
+//     });
 
-    HttpResponse::Ok()
-        .insert_header(("Content-Type", "text/event-stream"))
-        .insert_header(("Cache-Control", "no-cache"))
-        .insert_header(("Connection", "keep-alive"))
-        .streaming(stream)
-}
+//     HttpResponse::Ok()
+//         .insert_header(("Content-Type", "text/event-stream"))
+//         .insert_header(("Cache-Control", "no-cache"))
+//         .insert_header(("Connection", "keep-alive"))
+//         .streaming(stream)
+// }

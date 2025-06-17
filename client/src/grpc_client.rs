@@ -5,7 +5,7 @@ use tokio::io::AsyncReadExt;
 use tokio_stream::{Stream, StreamExt};
 use uuid::Uuid;
 use std::pin::Pin;
-use tokio::sync::broadcast;
+// use tokio::sync::broadcast;
 
 use crate::error::AppError;
 
@@ -26,7 +26,7 @@ pub async fn transfer_data(
     file_details: Option<(&str, &str)>, // (path, name)
     message_content: Option<&str>,
     destination: Option<&str>,
-    notifier: Option<broadcast::Sender<TransferResponse>>,
+    // notifier: Option<broadcast::Sender<TransferResponse>>,
 ) -> Result<(), AppError> {
 
     // can't do much without a file or a message
@@ -130,7 +130,7 @@ pub async fn transfer_data(
         req_tx: &mut mpsc::Sender<TransferRequest>,
         req: TransferRequest,
         responses: &mut Pin<Box<dyn Stream<Item = Result<TransferResponse, tonic::Status>> + Send>>,
-        notifier: &Option<broadcast::Sender<TransferResponse>>,
+        // notifier: &Option<broadcast::Sender<TransferResponse>>,
     ) -> Result<(), AppError> {
         for attempt in 1..=MAX_RETRIES {
             if attempt > 1 {
@@ -143,9 +143,9 @@ pub async fn transfer_data(
                 Some(Ok(ack)) => {
                     let origin = ack.error_info.as_ref().map(|e| e.error_code.as_str()).unwrap_or("UNKNOWN");
                     println!("[CLIENT] ACK received from {}. status: {} (chunk {} )", origin, ack.status, ack.transfer_id);
-                    if let Some(tx) = notifier {
-                        let _ = tx.send(ack.clone());
-                    }
+                    // if let Some(tx) = notifier {
+                    //     let _ = tx.send(ack.clone());
+                    // }
                     return Ok(());
                 }
                 Some(Err(e)) => {
@@ -182,7 +182,8 @@ pub async fn transfer_data(
             metadata: Some(meta),
             content: msg_bytes,
         };
-        send_with_retry(&mut req_tx, req, &mut response_stream, &notifier).await?;
+        // send_with_retry(&mut req_tx, req, &mut response_stream, &notifier).await?;
+        send_with_retry(&mut req_tx, req, &mut response_stream).await?;
     }
 
     // === Send file chunks sequentially =========================================
@@ -203,7 +204,8 @@ pub async fn transfer_data(
                 content: chunk.clone(),
             };
 
-            send_with_retry(&mut req_tx, req, &mut response_stream, &notifier).await?;
+            // send_with_retry(&mut req_tx, req, &mut response_stream, &notifier).await?;
+            send_with_retry(&mut req_tx, req, &mut response_stream).await?;
         }
     }
 
@@ -272,9 +274,9 @@ pub async fn transfer_data(
                         break;
                     }
                 }
-                if let Some(tx) = &notifier {
-                    let _ = tx.send(resp.clone());
-                }
+                // if let Some(tx) = &notifier {
+                //     let _ = tx.send(resp.clone());
+                // }
             }
     
             Err(status) => {
