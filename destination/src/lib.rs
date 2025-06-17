@@ -16,9 +16,9 @@ use tokio_stream::{Stream, StreamExt};
 use tonic::{Request, Response, Status, Streaming, transport::Server};
 use ftp::ErrorInfo;
 use tokio::sync::broadcast;
-use bytes::Bytes;
-use tokio_stream::wrappers::BroadcastStream;
-use actix_web::{HttpResponse, web, Responder};
+// use bytes::Bytes;
+// use tokio_stream::wrappers::BroadcastStream;
+// use actix_web::{HttpResponse, web, Responder};
 // use actix_cors::Cors;
 // use serde_json;
 // use uuid::Uuid;
@@ -44,22 +44,22 @@ pub struct AppState {
 }
 
 // SSE endpoint
-pub async fn events_stream(state: web::Data<AppState>) -> impl Responder {
-    let rx = state.notifier.subscribe();
-    let stream = BroadcastStream::new(rx).map(|msg| match msg {
-        Ok(resp) => {
-            let json = format!("{{\"transfer_id\":\"{}\",\"status\":{}}}", resp.transfer_id, resp.status);
-            Ok::<Bytes, std::convert::Infallible>(Bytes::from(format!("data: {}\n\n", json)))
-        }
-        Err(_) => Ok(Bytes::from("event: ping\n\n")),
-    });
+// pub async fn events_stream(state: web::Data<AppState>) -> impl Responder {
+//     let rx = state.notifier.subscribe();
+//     let stream = BroadcastStream::new(rx).map(|msg| match msg {
+//         Ok(resp) => {
+//             let json = format!("{{\"transfer_id\":\"{}\",\"status\":{}}}", resp.transfer_id, resp.status);
+//             Ok::<Bytes, std::convert::Infallible>(Bytes::from(format!("data: {}\n\n", json)))
+//         }
+//         Err(_) => Ok(Bytes::from("event: ping\n\n")),
+//     });
 
-    HttpResponse::Ok()
-        .insert_header(("Content-Type", "text/event-stream"))
-        .insert_header(("Cache-Control", "no-cache"))
-        .insert_header(("Connection", "keep-alive"))
-        .streaming(stream)
-}
+//     HttpResponse::Ok()
+//         .insert_header(("Content-Type", "text/event-stream"))
+//         .insert_header(("Cache-Control", "no-cache"))
+//         .insert_header(("Connection", "keep-alive"))
+//         .streaming(stream)
+// }
 
 #[tonic::async_trait]
 impl TransferService for FileTransferService {
