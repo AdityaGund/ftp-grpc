@@ -3,18 +3,18 @@ use dotenv::dotenv;
 use std::env;
 use std::io::Result;
 use actix_cors::Cors;
-use tokio::sync::broadcast;
-use actix_web::web;
+// use tokio::sync::broadcast;
+// use actix_web::web;
 
 pub mod error;
 pub mod grpc_client;
 pub mod handlers;
 pub mod routes;
 
-#[derive(Clone)]
-pub struct AppState {
-    pub notifier: broadcast::Sender<grpc_client::TransferResponse>,
-}
+// #[derive(Clone)]
+// pub struct AppState {
+//     pub notifier: broadcast::Sender<grpc_client::TransferResponse>,
+// }
 
 pub async fn run_client() -> Result<()> {
     dotenv().ok();
@@ -23,8 +23,8 @@ pub async fn run_client() -> Result<()> {
     let port = env::var("CLIENT_PORT").unwrap().to_string();
     let addr = format!("{}:{}", host, port);
 
-    let (tx, _rx) = broadcast::channel::<grpc_client::TransferResponse>(100);
-    let app_state = AppState { notifier: tx };
+    // let (tx, _rx) = broadcast::channel::<grpc_client::TransferResponse>(100);
+    // let app_state = AppState { notifier: tx };
 
     println!("[CLIENT GRPC] Starting Actix-web server at http://{}", addr);
 
@@ -40,7 +40,7 @@ pub async fn run_client() -> Result<()> {
         .max_age(3600); // Set the preflight request max age in seconds
 
         App::new()
-            .app_data(web::Data::new(app_state.clone()))
+            // .app_data(web::Data::new(app_state.clone()))
             .wrap(cors)
             // .app_data(grpc_client.clone())
             .configure(routes::configure_routes)
