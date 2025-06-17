@@ -5,7 +5,7 @@ use tokio::io::AsyncReadExt;
 use tokio_stream::{Stream, StreamExt};
 use uuid::Uuid;
 use std::pin::Pin;
-use std::convert::TryFrom;
+use tokio::sync::broadcast;
 
 use crate::error::AppError;
 
@@ -26,6 +26,7 @@ pub async fn transfer_data(
     file_details: Option<(&str, &str)>, // (path, name)
     message_content: Option<&str>,
     destination: Option<&str>,
+    notifier: Option<broadcast::Sender<TransferResponse>>,
 ) -> Result<(), AppError> {
 
     // can't do much without a file or a message
@@ -129,28 +130,22 @@ pub async fn transfer_data(
         req_tx: &mut mpsc::Sender<TransferRequest>,
         req: TransferRequest,
         responses: &mut Pin<Box<dyn Stream<Item = Result<TransferResponse, tonic::Status>> + Send>>,
+        notifier: &Option<broadcast::Sender<TransferResponse>>,
     ) -> Result<(), AppError> {
         for attempt in 1..=MAX_RETRIES {
             if attempt > 1 {
                 println!("[CLIENT] Retry attempt {} for chunk {}", attempt, req.metadata.as_ref().map_or(0, |m| m.chunk_index));
             }
 
-            // Send chunk
-            req_tx
-                // req.clone() -> could eat memory
-                .send(req.clone())
-                .await
-                .map_err(|e| AppError::ClientError(format!("Failed to send request over stream: {e}")))?;
+            req_tx.send(req.clone()).await.map_err(|e| AppError::ClientError(format!("Failed to send request over stream: {e}")))?;
 
-            // Wait for ACK
             match responses.next().await {
                 Some(Ok(ack)) => {
-                    let origin = ack
-                        .error_info
-                        .as_ref()
-                        .map(|e| e.error_code.as_str())
-                        .unwrap_or("UNKNOWN");
+                    let origin = ack.error_info.as_ref().map(|e| e.error_code.as_str()).unwrap_or("UNKNOWN");
                     println!("[CLIENT] ACK received from {}. status: {} (chunk {} )", origin, ack.status, ack.transfer_id);
+                    if let Some(tx) = notifier {
+                        let _ = tx.send(ack.clone());
+                    }
                     return Ok(());
                 }
                 Some(Err(e)) => {
@@ -187,7 +182,7 @@ pub async fn transfer_data(
             metadata: Some(meta),
             content: msg_bytes,
         };
-        send_with_retry(&mut req_tx, req, &mut response_stream).await?;
+        send_with_retry(&mut req_tx, req, &mut response_stream, &notifier).await?;
     }
 
     // === Send file chunks sequentially =========================================
@@ -208,7 +203,7 @@ pub async fn transfer_data(
                 content: chunk.clone(),
             };
 
-            send_with_retry(&mut req_tx, req, &mut response_stream).await?;
+            send_with_retry(&mut req_tx, req, &mut response_stream, &notifier).await?;
         }
     }
 
@@ -276,6 +271,9 @@ pub async fn transfer_data(
                         println!("[CLIENT] Unknown status code received from {}: {:?}", origin, e);
                         break;
                     }
+                }
+                if let Some(tx) = &notifier {
+                    let _ = tx.send(resp.clone());
                 }
             }
     
