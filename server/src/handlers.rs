@@ -1,6 +1,7 @@
-use actix_web::{HttpRequest, HttpResponse, web};
+use actix_web::{web, Error, HttpRequest, HttpResponse};
 use actix_web::HttpMessage;
 use mongodb::bson::oid::ObjectId;
+use mongodb::results::InsertOneResult;
 use crate::error::AppError;
 use crate::models::user_model::{AdminUser, Bank};
 use crate::services::db::Database;
@@ -62,6 +63,7 @@ pub async fn add_user(req: HttpRequest, db: web::Data<Database>) -> Result<HttpR
     let username = header_str("username")?.to_owned();
     let password = header_str("password")?.to_owned();
     let role     = header_str("role")?.to_lowercase();
+    let ip     = header_str("ip")?.to_owned();
 
     // println!("[ADMIN SERVER] {username}, {password}, {role}");
 
@@ -82,8 +84,9 @@ pub async fn add_user(req: HttpRequest, db: web::Data<Database>) -> Result<HttpR
                 _id: ObjectId::new(),
                 username: username.clone(),
                 password: hashed_pw.clone(),
+                ip: ip.clone(),
             };
-            db.add_bank(bank_user).await?;
+            let _ = db.add_bank(bank_user).await?;
         },
         "admin" => {
             let admin_user = AdminUser {
@@ -91,7 +94,7 @@ pub async fn add_user(req: HttpRequest, db: web::Data<Database>) -> Result<HttpR
                 username: username.clone(),
                 password: hashed_pw.clone(),
             };
-            db.add_admin(admin_user).await?;
+            let _ = db.add_admin(admin_user).await;
         },
         _ => {
             return Err(AppError::ClientError(
@@ -102,5 +105,5 @@ pub async fn add_user(req: HttpRequest, db: web::Data<Database>) -> Result<HttpR
 
     println!("[ADMIN SERVER] Added user `{}` as `{}`", username, role);
 
-    Ok(HttpResponse::Ok().finish())
+    Ok(HttpResponse::Ok().json(format!("Successfuly added {} as {}", username, role)))
 }

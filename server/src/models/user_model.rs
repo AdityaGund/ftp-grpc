@@ -11,6 +11,7 @@ pub struct Bank {
 
     pub username: String,
     pub password: String,
+    pub ip: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
