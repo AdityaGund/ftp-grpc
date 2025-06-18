@@ -1,6 +1,11 @@
 use crate::ftp::{
     TransferRequest, TransferResponse, transfer_service_client::TransferServiceClient,
 };
+use crate::services::db::Database;
+use actix_web::web::Data;
+use actix_web::{App, HttpServer};
+use actix_cors::Cors;
+use actix_web_httpauth::middleware::HttpAuthentication;
 use chrono::Utc;
 use dotenv::dotenv;
 use ftp::transfer_service_server::{TransferService, TransferServiceServer};
@@ -26,6 +31,13 @@ use tonic::{Request, Response, Status, Streaming, transport::Server};
 
 // const MAX_RETRIES: u8 = 3;
 // const CHUNK_SIZE: usize = 1024 * 1024; // 1 MB
+
+pub mod routes;
+pub mod handlers;
+pub mod error;
+pub mod models;
+pub mod services;
+pub mod middleware;
 
 pub mod ftp {
     tonic::include_proto!("ftp");
@@ -378,22 +390,60 @@ impl TransferService for FileTransferService {
     }
 }
 
-#[tokio::main]
+#[actix_web::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     dotenv().ok();
 
-    // Get server address from environment variables
-    let host = env::var("SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
-    let port = env::var("SERVER_PORT").unwrap_or_else(|_| "50051".to_string());
-    let addr = format!("{}:{}", host, port).parse::<SocketAddr>()?;
-
-    let service = FileTransferService::new();
-    println!("Server listening on {}", addr);
-
-    Server::builder()
+    let grpc_handle = actix_web::rt::spawn(async move {
+        let host = env::var("SERVER_HOST").unwrap();
+        let port = env::var("SERVER_PORT").unwrap();
+        
+        let addr = format!("{}:{}", host, port).parse::<SocketAddr>().expect("[GRPC ADMIN] failed to parse address");
+        
+        let service = FileTransferService::new();
+        println!("[GRPC ADMIN] Server listening on {}", addr);
+        
+        Server::builder()
         .add_service(TransferServiceServer::new(service))
-        .serve(addr)
-        .await?;
+            .serve(addr)
+            .await
+            .expect("[GRPC ADMIN] failed to create GRPC ADMIN server");
+        
+    });
+    
+    
+    let http_handle = actix_web::rt::spawn(async move {
+        let host = env::var("SERVER_HOST").unwrap();
+        let port = "50052".to_string();
+        let addr = format!("{}:{}", host, port).parse::<SocketAddr>().expect("[ADMIN SERVER] failed to parse address");
+
+        
+        let db = Database::init().await;
+        let db_data = Data::new(db);
+        
+        println!("[ADMIN SERVER] Starting Actix-web server at http://{}", addr);
+
+        let _ = HttpServer::new(move || {
+            let cors = Cors::permissive();
+    
+            App::new()
+                // .app_data(web::Data::new(app_state.clone()))
+                .app_data(db_data.clone())
+                .wrap(cors)
+                // .wrap(HttpAuthentication::bearer(middleware::validator))
+                // .app_data(grpc_client.clone())
+                .configure(routes::configure_routes)
+        })
+        .bind(&addr)
+        .expect("[ADMIN SERVER] Failed to bind")
+        .run()
+        .await;
+
+
+    });
+    
+    
+    let _ = tokio::join!(grpc_handle, http_handle);
 
     Ok(())
 }
