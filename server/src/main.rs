@@ -413,8 +413,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     
     
     let http_handle = actix_web::rt::spawn(async move {
-        let host = env::var("SERVER_HOST").unwrap();
-        let port = "50052".to_string();
+        let host = env::var("SERVER_HTTP_HOST").unwrap();
+        let port = env::var("SERVER_HTTP_PORT").unwrap();
         let addr = format!("{}:{}", host, port).parse::<SocketAddr>().expect("[ADMIN SERVER] failed to parse address");
 
         
@@ -430,9 +430,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 // .app_data(web::Data::new(app_state.clone()))
                 .app_data(db_data.clone())
                 .wrap(cors)
-                // .wrap(HttpAuthentication::bearer(middleware::validator))
-                // .app_data(grpc_client.clone())
-                .configure(routes::configure_routes)
+                // // .app_data(grpc_client.clone())
+                // .configure(routes::configure_routes)
+                // PUBLIC routes
+                .service(handlers::login)
+                // everything under /api requires JWT
+                .service(
+                    actix_web::web::scope("/api")
+                        .wrap(HttpAuthentication::bearer(middleware::validator))
+                        .configure(routes::configure_routes)
+                )
         })
         .bind(&addr)
         .expect("[ADMIN SERVER] Failed to bind")
