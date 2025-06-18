@@ -1,11 +1,11 @@
-use actix_web::{web, Error, HttpRequest, HttpResponse};
-use actix_web::HttpMessage;
+use actix_web::{web, HttpRequest, HttpResponse};
+// use actix_web::HttpMessage;
 use mongodb::bson::oid::ObjectId;
-use mongodb::results::InsertOneResult;
+// use mongodb::results::InsertOneResult;
 use crate::error::AppError;
 use crate::models::user_model::{AdminUser, Bank};
 use crate::services::db::Database;
-use actix_web::post;
+use actix_web::{get, post};
 use crate::services::auth::AuthService;
 use serde_json::json;
 
@@ -23,7 +23,14 @@ pub async fn login(req: HttpRequest, db: web::Data<Database>) -> Result<HttpResp
 
     let username = header_str("username")?.to_owned();
     let password = header_str("password")?.to_owned();
-    let role     = header_str("role")?.to_lowercase();
+    let a = username.chars().nth(0);
+    let role: String;
+
+    if a.unwrap() == 'B' {
+        role = "bank".to_string();
+    } else {
+        role = "admin".to_string();
+    }
 
     // println!("[ADMIN SERVER] {username}, {password}, {role}");
 
@@ -40,7 +47,7 @@ pub async fn login(req: HttpRequest, db: web::Data<Database>) -> Result<HttpResp
 
     // verify
     if !auth.verify_password(&password, &stored_hash)? {
-        return Err(AppError::ClientError("Invalid username or password".into()));
+        return Err(AppError::ClientError("Invalid password".into()));
     }
 
     let token = auth.generate_token(&username, &role, 60)?;
@@ -62,7 +69,6 @@ pub async fn add_user(req: HttpRequest, db: web::Data<Database>) -> Result<HttpR
 
     let username = header_str("username")?.to_owned();
     let password = header_str("password")?.to_owned();
-    let role     = header_str("role")?.to_lowercase();
     let ip     = header_str("ip")?.to_owned();
 
     // println!("[ADMIN SERVER] {username}, {password}, {role}");
@@ -78,8 +84,19 @@ pub async fn add_user(req: HttpRequest, db: web::Data<Database>) -> Result<HttpR
 
     let hashed_pw = auth.hash_password(&password)?;
 
+    
+    let a = username.chars().nth(0);
+    let role: String;
+
+    println!("{a:?}");
+    if a.unwrap() == 'B' {
+        role = "bank".to_string();
+    } else {
+        role = "admin".to_string();
+    }
+
     match role.as_str() {
-        "bank" => {
+        "bank"=> {
             let bank_user = Bank {
                 _id: ObjectId::new(),
                 username: username.clone(),
@@ -106,4 +123,13 @@ pub async fn add_user(req: HttpRequest, db: web::Data<Database>) -> Result<HttpR
     println!("[ADMIN SERVER] Added user `{}` as `{}`", username, role);
 
     Ok(HttpResponse::Ok().json(format!("Successfuly added {} as {}", username, role)))
+}
+
+
+#[get("/available")]
+pub async fn available_banks(db: web::Data<Database>) -> Result<HttpResponse, AppError> {
+
+    let banks = db.get_banks().await?;
+
+    Ok(HttpResponse::Ok().json(banks))
 }
