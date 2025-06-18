@@ -24,7 +24,7 @@ pub async fn login(req: HttpRequest, db: web::Data<Database>) -> Result<HttpResp
     let password = header_str("password")?.to_owned();
     let role     = header_str("role")?.to_lowercase();
 
-    println!("[ADMIN SERVER] {username}, {password}, {role}");
+    // println!("[ADMIN SERVER] {username}, {password}, {role}");
 
     // Fetch stored user
     let stored_hash_opt = match role.as_str() {
