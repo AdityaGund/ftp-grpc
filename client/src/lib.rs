@@ -10,6 +10,9 @@ pub mod error;
 pub mod grpc_client;
 pub mod handlers;
 pub mod routes;
+pub mod models;
+pub mod services;
+pub mod middleware;
 
 // #[derive(Clone)]
 // pub struct AppState {
