@@ -20,5 +20,6 @@ curl -F "file=@C:/Users/paras/Downloads/4.4.0.apk" -F "message=Hello world" -F "
 ### login
 
 ```bash
-curl -s -X POST http://127.0.0.1:50052/login -H "username: A001" -H "password: testpass123" -H "role: Admin"
+# add an **admin** user
+TOKEN=$(curl -s -X POST http://127.0.0.1:50052/login -H "username: A001" -H "password: testpass123" -H "role: admin" | jq -r .token)
 ```
