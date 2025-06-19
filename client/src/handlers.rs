@@ -21,13 +21,16 @@ use crate::error::{self, AppError};
 // use crate::grpc_client::TransferResponse;
 use crate::grpc_client::{self, ftp::transfer_service_client::TransferServiceClient};
 use serde_json;
+use actix_web::post;
 
 // pub async fn upload(state: web::Data<AppState>, mut payload: Multipart) -> Result<HttpResponse, AppError> {
+#[post("/upload")]
 pub async fn upload( mut payload: Multipart) -> Result<HttpResponse, AppError> {
     let mut file_path: Option<String> = None;
     let mut file_name: Option<String> = None;
     let mut message: Option<String> = None;
     let mut destination: Option<String> = None;
+    let mut sender: Option<String> = None;
 
     fs::create_dir_all("./temp").await?;
 
@@ -73,22 +76,21 @@ pub async fn upload( mut payload: Multipart) -> Result<HttpResponse, AppError> {
                         destination = Some(s);
                     }
                 }
+                Some("sender") => {
+                    let mut data = Vec::new();
+                    while let Some(chunk) = field.try_next().await? {
+                        data.extend_from_slice(chunk.as_ref());
+                    }
+                    if let Ok(s) = String::from_utf8(data) {
+                        sender = Some(s);
+                    }
+                }
                 _ => (),
             }
         }
     }
 
-    // if file_path.is_none() && message.is_none() && destination.is_none() {
-    //     return Ok(HttpResponse::BadRequest().body("A file/message & destination must be provided."));
-    // }
-
-    let response_json = serde_json::json!({
-        "message": "Data transfer success.",
-        "file_name": &file_name,
-        "sent_message": &message,
-        "destination": &destination,
-    });
-
+    // Perform transfer and build response depending on the outcome
     let transfer_result: Result<(), AppError>;
 
     // connect to B server
@@ -108,13 +110,9 @@ pub async fn upload( mut payload: Multipart) -> Result<HttpResponse, AppError> {
                     file_details,
                     message.as_deref(),
                     destination.as_deref(),
+                    sender.as_deref(),
                     // Some(state.notifier.clone()),
                 ).await;
-
-                if let Err(e) = transfer_result {
-                    // response_json["message"] = "Data transfer failed";
-                    eprintln!("[CLIENT] transfer failed: {}", e);
-                }
 
                 // if let Err(e) = grpc_client::transfer_data(
                 //     &mut client,
@@ -140,7 +138,17 @@ pub async fn upload( mut payload: Multipart) -> Result<HttpResponse, AppError> {
         }
     // });
 
-    Ok(HttpResponse::Ok().json(response_json))
+    // Decide which HTTP response to send
+    match transfer_result {
+        Ok(_) => Ok(HttpResponse::Ok().json(serde_json::json!({
+            "message": "Data transfer success.",
+            "file_name": &file_name,
+            "sent_message": &message,
+            "destination": &destination,
+            "sender": &sender,
+        }))),
+        Err(e) => Err(e), // will be converted to proper HTTP error by ResponseError impl
+    }
 }
 
 // pub async fn events_stream(state: web::Data<AppState>) -> impl Responder {

@@ -1,4 +1,5 @@
 use std::env;
+use std::fs;
 
 use argon2::{password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString}, Argon2};
 use chrono::{Duration, Utc};
@@ -17,13 +18,27 @@ pub struct Claims {
 
 #[derive(Clone)]
 pub struct AuthService {
-    secret: String,
+    encoding_key: EncodingKey,
+    decoding_key: DecodingKey,
 }
 
 impl AuthService {
     pub fn new() -> Self {
-        let secret = env::var("JWT_SECRET").expect("JWT_SECRET env var required");
-        Self { secret }
+        // Read RSA private key from the file whose path is provided through the
+        // `JWT_PRIVATE_KEY_PATH` env var. This key MUST be in PEM PKCS#8 or PKCS#1
+        // format accepted by `jsonwebtoken`.
+        let key_path = env::var("JWT_PRIVATE_KEY_PATH")
+            .expect("JWT_PRIVATE_KEY_PATH env var required (should point to RSA private key PEM file)");
+        let key_bytes = fs::read(&key_path)
+            .expect("Cannot read RSA private key");
+
+        // Build encoding/decoding keys once and reuse them.
+        let encoding_key = EncodingKey::from_rsa_pem(&key_bytes)
+            .expect("Invalid RSA private key (encoding)");
+        let decoding_key = DecodingKey::from_rsa_pem(&key_bytes)
+            .expect("Invalid RSA private key (decoding)");
+
+        Self { encoding_key, decoding_key }
     }
 
     pub fn hash_password(&self, password: &str) -> Result<String, AppError> {
@@ -50,13 +65,13 @@ impl AuthService {
             iat: now.timestamp() as usize,
             exp: (now + Duration::minutes(minutes)).timestamp() as usize,
         };
-        encode(&Header::new(Algorithm::HS256), &claims, &EncodingKey::from_secret(self.secret.as_bytes()))
+        encode(&Header::new(Algorithm::RS256), &claims, &self.encoding_key)
             .map_err(|_| AppError::ClientError("Token creation failed".into()))
     }
 
     pub fn verify_token(&self, token: &str) -> Result<TokenData<Claims>, AppError> {
         // println!("[JWT] VERIFYING TOKEN");
-        decode::<Claims>(token, &DecodingKey::from_secret(self.secret.as_bytes()), &Validation::new(Algorithm::HS256))
+        decode::<Claims>(token, &self.decoding_key, &Validation::new(Algorithm::RS256))
             .map_err(|_| AppError::ClientError("Invalid/expired token".into()))
     }
 } 

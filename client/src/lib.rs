@@ -1,10 +1,10 @@
 use actix_web::{App, HttpServer};
-use dotenv::dotenv;
+use actix_web_httpauth::middleware::HttpAuthentication;
 use std::env;
 use std::io::Result;
 use actix_cors::Cors;
-// use tokio::sync::broadcast;
-// use actix_web::web;
+use std::path::Path;
+use dotenv::dotenv;
 
 pub mod error;
 pub mod grpc_client;
@@ -20,7 +20,15 @@ pub mod middleware;
 // }
 
 pub async fn run_client() -> Result<()> {
-    dotenv().ok();
+    // Always load the `.env` that sits next to Cargo.toml of the *client* crate,
+    // even if the binary is launched from the workspace root. `CARGO_MANIFEST_DIR`
+    // is set at compile-time to that directory.
+    let client_env_path = Path::new(env!("CARGO_MANIFEST_DIR")).join(".env");
+    // If that specific file exists, load it; otherwise fall back to the default
+    // search (current directory and parents).
+    if dotenv::from_path(client_env_path.as_path()).is_err() {
+        dotenv().ok();
+    }
 
     let host = env::var("CLIENT_HOST").unwrap().to_string();
     let port = env::var("CLIENT_PORT").unwrap().to_string();
@@ -32,19 +40,11 @@ pub async fn run_client() -> Result<()> {
     println!("[CLIENT GRPC] Starting Actix-web server at http://{}", addr);
 
     HttpServer::new(move || {
-        let cors = Cors::default()
-        .allowed_origin("http://localhost:5173") // Replace with your frontend's origin
-        .allowed_methods(vec!["GET", "POST"]) // Allow your desired methods
-        .allowed_headers(vec![
-            actix_web::http::header::CONTENT_TYPE,
-            actix_web::http::header::ACCEPT,
-        ]) // Allow your desired headers
-        .expose_headers(vec![actix_web::http::header::CONTENT_LENGTH]) // Expose headers to the client
-        .max_age(3600); // Set the preflight request max age in seconds
-
+        let cors = Cors::permissive();
         App::new()
             // .app_data(web::Data::new(app_state.clone()))
             .wrap(cors)
+            .wrap(HttpAuthentication::bearer(middleware::validator))
             // .app_data(grpc_client.clone())
             .configure(routes::configure_routes)
     })

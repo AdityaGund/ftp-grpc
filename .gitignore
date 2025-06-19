@@ -22,3 +22,4 @@ pass.md
 server/.env
 client/.env
 destination/.env
+keys/admin_private.pem

@@ -1,13 +1,15 @@
-use std::env;
+#[derive(Clone)]
 pub struct Database{
     file_info: Collection<FileInfo>
 }
 
-use mongodb::{Client, Collection};
-use bson::{doc};
 use std::path::Path;
+use mongodb::results::InsertOneResult;
+use mongodb::{Client, Collection};
+use crate::error::AppError;
+use bson::{doc};
 use dotenv::dotenv;
-
+use std::env;
 
 #[derive(Debug, serde::Serialize)]
 pub struct BankSummary {
@@ -19,12 +21,11 @@ pub struct BankSummary {
 use crate::models::file_info_model::FileInfo;
 impl Database {
     
-    // client never actually connects to DB - as of 19th june
     pub async fn init() -> Self {
-        let client_env_path = Path::new(env!("CARGO_MANIFEST_DIR")).join(".env");
-        if dotenv::from_path(client_env_path.as_path()).is_err() {
-            dotenv().ok();
-        }
+        // let dest_env_path = Path::new(env!("CARGO_MANIFEST_DIR")).join(".env");
+        // if dotenv::from_path(dest_env_path.as_path()).is_err() {
+        //     dotenv().ok();
+        // };
         let uri = env::var("MONGO_URI").unwrap().to_string();
         let client = Client::with_uri_str(uri).await.unwrap();
 
@@ -33,10 +34,18 @@ impl Database {
         let file_info: Collection<FileInfo> = db.collection("fileInfo");
 
 
-        println!("[CLIENT SERVER] DB Connected");
+        println!("[DESTINATION SERVER] DB Connected");
         Database{
             file_info,
         }
 
+    }
+
+    pub async fn store_file_info(&self, file_info: FileInfo) -> Result<InsertOneResult, AppError> {
+        self
+            .file_info
+            .insert_one(file_info)
+            .await
+            .map_err(|e| AppError::ClientError(e.to_string()))
     }
 }

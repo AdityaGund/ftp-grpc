@@ -13,7 +13,6 @@ use ftp::ErrorInfo;
 // use std::fs::File;
 // use std::sync::mpsc::Sender;
 use std::{
-    collections::HashMap,
     env,
     error::Error,
     net::SocketAddr,
@@ -44,19 +43,11 @@ pub mod ftp {
 }
 
 #[derive(Debug, Clone)]
-pub struct FileTransferService {
-    bank_mappings: HashMap<String, String>, // Maps bank_id to server URL
-}
+pub struct FileTransferService;
 
 impl FileTransferService {
     pub fn new() -> Self {
-        let mut mappings = HashMap::new();
-        mappings.insert("BANK_C".to_string(), "http://192.168.164.1:50052".to_string());
-        mappings.insert("BANK_D".to_string(), "http://127.0.0.1:50052".to_string());
-
-        Self {
-            bank_mappings: mappings,
-        }
+        Self {}
     }
 
     async fn forward_message(
@@ -65,16 +56,18 @@ impl FileTransferService {
         original_metadata: ftp::Metadata,
         receiver_bank_id: &str,
     ) -> Result<impl Stream<Item = Result<TransferResponse, Status>>, Status> {
-        let destination_url = self.bank_mappings.get(receiver_bank_id).ok_or_else(|| {
-            tonic::Status::not_found(format!(
-                "No server mapping found for bank: {}",
-                receiver_bank_id
-            ))
-        })?;
+        // The client now sends the destination IP/URL directly in the header (metadata)
+        // so we no longer rely on a server-side mapping table.
+        // Accept either a full URL (starting with http) or a bare IP/host.
+        let destination_url = if receiver_bank_id.starts_with("http") {
+            receiver_bank_id.to_string()
+        } else {
+            format!("http://{}:50053", receiver_bank_id)
+        };
 
         println!(
-            "[SERVER] Forwarding message to bank {} at {}",
-            receiver_bank_id, destination_url
+            "[SERVER] Forwarding message to destination {}",
+            destination_url
         );
 
         let mut client = TransferServiceClient::connect(destination_url.clone())
@@ -101,16 +94,15 @@ impl FileTransferService {
         // Sender used to propagate ACKs back to the original client connection. -> tx
         ack_sender: mpsc::Sender<Result<TransferResponse, Status>>,
     ) -> Result<(), Status> {
-        let destination_url = self.bank_mappings.get(receiver_bank_id).ok_or_else(|| {
-            tonic::Status::not_found(format!(
-                "No server mapping found for bank: {}",
-                receiver_bank_id
-            ))
-        })?;
+        let destination_url = if receiver_bank_id.starts_with("http") {
+            receiver_bank_id.to_string()
+        } else {
+            format!("http://{}:50053", receiver_bank_id)
+        };
 
         println!(
-            "[SERVER] Forwarding to bank {} at {}",
-            receiver_bank_id, destination_url
+            "[SERVER] Forwarding to destination {}",
+            destination_url
         );
 
         let mut destination = TransferServiceClient::connect(destination_url.clone())

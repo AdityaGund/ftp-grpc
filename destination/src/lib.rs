@@ -1,7 +1,6 @@
 use crate::ftp::TransferResponse;
 use dotenv::dotenv;
 use ftp::transfer_service_server::{TransferService, TransferServiceServer};
-// use uuid::serde;
 use std::{
     env,
     error::Error,
@@ -16,12 +15,15 @@ use tokio_stream::{Stream, StreamExt};
 use tonic::{Request, Response, Status, Streaming, transport::Server};
 use ftp::ErrorInfo;
 use tokio::sync::broadcast;
-// use bytes::Bytes;
-// use tokio_stream::wrappers::BroadcastStream;
-// use actix_web::{HttpResponse, web, Responder};
-// use actix_cors::Cors;
-// use serde_json;
-// use uuid::Uuid;
+use crate::services::db::Database;
+use std::sync::Arc;
+use crate::models::file_info_model::FileInfo as DbFileInfo;
+use mongodb::bson::oid::ObjectId;
+use chrono::Utc;
+
+pub mod models;
+pub mod services;
+pub mod error;
 
 pub mod ftp {
     tonic::include_proto!("ftp");
@@ -30,11 +32,12 @@ pub mod ftp {
 #[derive(Clone)]
 pub struct FileTransferService {
     notifier: broadcast::Sender<TransferResponse>,
+    db: Arc<Database>,
 }
 
 impl FileTransferService {
-    pub fn new(notifier: broadcast::Sender<TransferResponse>) -> Self {
-        Self { notifier }
+    pub fn new(notifier: broadcast::Sender<TransferResponse>, db: Arc<Database>) -> Self {
+        Self { notifier, db }
     }
 }
 
@@ -72,6 +75,7 @@ impl TransferService for FileTransferService {
         println!("[DESTINATION] Notification: Receiving file");
 
         let notifier = self.notifier.clone();
+        let db_clone = self.db.clone();
         let mut in_stream = request.into_inner();
         let (tx, rx) = mpsc::channel(4);
 
@@ -84,6 +88,11 @@ impl TransferService for FileTransferService {
             let mut is_first_chunk = true;
             let mut message = String::new();
             const SEPARATOR: &[u8] = b"---MESSAGE_END---";
+            let mut sender_bank_id = String::new();
+            let mut receiver_bank_id = String::new();
+            let mut time_sent_at = String::new();
+            let mut file_name = String::new();
+            let mut file_path = String::new();
 
             while let Some(result) = in_stream.next().await {
                 match result {
@@ -158,7 +167,17 @@ impl TransferService for FileTransferService {
                                         let path =
                                             Path::new(storage_dir).join(format!("{}", &fi.name));
                                         temp_file_path = Some(path.clone());
-                                        file = Some(fs::File::create(path).await.unwrap());
+                                        file = Some(fs::File::create(path.clone()).await.unwrap());
+
+                                        // store metadata details
+                                        file_name = fi.name.clone();
+                                        file_path = match std::fs::canonicalize(&path) {
+                                            Ok(abs) => abs.to_string_lossy().to_string(),
+                                            Err(_) => path.clone().to_string_lossy().to_string(),
+                                        };
+                                        sender_bank_id = metadata.sender_bank_id.clone();
+                                        receiver_bank_id = metadata.receiver_bank_id.clone();
+                                        time_sent_at = metadata.timestamp.clone();
                                     }
                                 }
 
@@ -219,11 +238,25 @@ impl TransferService for FileTransferService {
                     error_details: "DONE".to_string(),
                 }),
             };
+
+            let db_doc = DbFileInfo {
+                _id: ObjectId::new(),
+                name: file_name,
+                path: file_path,
+                sender_bank_id,
+                receiver_bank_id,
+                message,
+                time_sent_at,
+                time_received_at: Utc::now().format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string(),
+            };
+
+            let _ = db_clone.store_file_info(db_doc).await;
+
             println!("[DESTINATION] Final ACK sent for transfer {} (SUCCESS)", response.transfer_id);
             let _ = tx.send(Ok(response.clone())).await;
             let _ = notifier.send(response.clone());
             if let Some(path) = &temp_file_path {
-                println!("[DESTINATION] File saved to: {}", path.display());
+                println!("[DESTINATION] File saved to: {} & metadata stored in DB.", path.display());
             }
         });
 
@@ -233,13 +266,18 @@ impl TransferService for FileTransferService {
 }
 
 pub async fn run_destination() -> Result<(), Box<dyn Error>> {
-    dotenv().ok();
+    let dest_env_path = Path::new(env!("CARGO_MANIFEST_DIR")).join(".env");
+    if dotenv::from_path(dest_env_path.as_path()).is_err() {
+        dotenv().ok();
+    }
+
 
     // gRPC address
     let host = env::var("DESTINATION_HOST").unwrap();
     let port = env::var("DESTINATION_PORT").unwrap();
     let grpc_addr: SocketAddr = format!("{}:{}", host, port).parse()?;
 
+    let db = Arc::new(Database::init().await);
     // HTTP address for SSE
     // let http_addr = env::var("DESTINATION_HTTP_ADDR").unwrap_or_else(|_| "0.0.0.0:5174".to_string());
 
@@ -268,7 +306,8 @@ pub async fn run_destination() -> Result<(), Box<dyn Error>> {
     // ---- start gRPC server ---------------------------------------------
     println!("[DESTINATION GRPC] Listening on {}", grpc_addr);
     Server::builder()
-        .add_service(TransferServiceServer::new(FileTransferService::new(tx)))
+        .add_service(TransferServiceServer::new(FileTransferService::new(tx, db.clone())))
+        // .app_data(db_data.clone())
         .serve(grpc_addr)
         .await?;
 

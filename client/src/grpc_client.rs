@@ -26,6 +26,7 @@ pub async fn transfer_data(
     file_details: Option<(&str, &str)>, // (path, name)
     message_content: Option<&str>,
     destination: Option<&str>,
+    sender: Option<&str>
     // notifier: Option<broadcast::Sender<TransferResponse>>,
 ) -> Result<(), AppError> {
 
@@ -171,11 +172,11 @@ pub async fn transfer_data(
     if let Some(msg_bytes) = standalone_message {
         let meta = Metadata {
             transfer_id: transfer_id.clone(),
-            sender_bank_id: "BANK_A".to_string(),
+            sender_bank_id: sender.unwrap().to_string(),
             receiver_bank_id: destination.unwrap().to_string(),
             chunk_index: 1,
             total_chunks: 1,
-            timestamp: Utc::now().to_rfc3339(),
+            timestamp: Utc::now().format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string(),
             payload_type: payload_type.clone(),
         };
         let req = TransferRequest {
@@ -191,11 +192,11 @@ pub async fn transfer_data(
         for (idx, chunk) in file_chunks.into_iter().enumerate() {
             let meta = Metadata {
                 transfer_id: transfer_id.clone(),
-                sender_bank_id: "BANK_A".to_string(),
+                sender_bank_id: sender.unwrap().to_string(),
                 receiver_bank_id: destination.unwrap().to_string(),
                 chunk_index: (idx + 1) as i32,
                 total_chunks,
-                timestamp: Utc::now().to_rfc3339(),
+                timestamp: Utc::now().format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string(),
                 payload_type: payload_type.clone(),
             };
             println!("[CLIENT] Sending chunk {}/{}", idx + 1, total_chunks);

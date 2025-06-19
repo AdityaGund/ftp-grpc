@@ -1,7 +1,7 @@
 use std::env;
+use std::fs;
 
 use argon2::{password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString}, Argon2};
-use chrono::{Duration, Utc};
 use jsonwebtoken::{encode, decode, Header, Validation, EncodingKey, DecodingKey, Algorithm, TokenData};
 use serde::{Serialize, Deserialize};
 
@@ -17,13 +17,16 @@ pub struct Claims {
 
 #[derive(Clone)]
 pub struct AuthService {
-    secret: String,
+    decoding_key: DecodingKey,
 }
 
 impl AuthService {
     pub fn new() -> Self {
-        let secret = env::var("JWT_SECRET").expect("JWT_SECRET env var required");
-        Self { secret }
+        let key_path = env::var("JWT_PUBLIC_KEY_PATH").expect("JWT_PUBLIC_KEY_PATH env var required");
+        let key_bytes = fs::read(&key_path).expect("Cannot read RSA public key");
+        let decoding_key = DecodingKey::from_rsa_pem(&key_bytes).expect("Invalid RSA public key");
+
+        Self { decoding_key }
     }
 
     pub fn hash_password(&self, password: &str) -> Result<String, AppError> {
@@ -41,22 +44,18 @@ impl AuthService {
         Ok(Argon2::default().verify_password(password.as_bytes(), &parsed).is_ok())
     }
 
-    pub fn generate_token(&self, username: &str, role: &str, minutes: i64) -> Result<String, AppError> {
-        // println!("[JWT] GENERATING TOKEN");
-        let now = Utc::now();
-        let claims = Claims {
-            sub: username.to_owned(),
-            role: role.to_owned(),
-            iat: now.timestamp() as usize,
-            exp: (now + Duration::minutes(minutes)).timestamp() as usize,
-        };
-        encode(&Header::new(Algorithm::HS256), &claims, &EncodingKey::from_secret(self.secret.as_bytes()))
-            .map_err(|_| AppError::ClientError("Token creation failed".into()))
-    }
+    // The client/bank side should never generate an admin-signed token, so calling
+    // this function is now a logic error. If you truly need token generation on
+    // the client, give it its *own* private key and expose its public key to any
+    // verifier instead.
+    // #[allow(dead_code)]
+    // pub fn generate_token(&self, _username: &str, _role: &str, _minutes: i64) -> Result<String, AppError> {
+    //     Err(AppError::ClientError("Token generation is not supported on client side".into()))
+    // }
 
     pub fn verify_token(&self, token: &str) -> Result<TokenData<Claims>, AppError> {
         // println!("[JWT] VERIFYING TOKEN");
-        decode::<Claims>(token, &DecodingKey::from_secret(self.secret.as_bytes()), &Validation::new(Algorithm::HS256))
+        decode::<Claims>(token, &self.decoding_key, &Validation::new(Algorithm::RS256))
             .map_err(|_| AppError::ClientError("Invalid/expired token".into()))
     }
 } 
