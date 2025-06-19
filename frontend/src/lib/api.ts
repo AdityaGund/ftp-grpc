@@ -23,6 +23,7 @@ export function uploadFile(
   });
 }
 
+
 // export function openEventStream(onMsg: (ev: unknown) => void) {
 //   const es = new EventSource(`${BASE}/events`);
 //   es.onmessage = (e) => {
@@ -38,3 +39,8 @@ export function uploadFile(
 //   };
 //   return () => es.close();
 // }
+
+export const api={
+  uploadFile,
+  // openEventStream,
+}

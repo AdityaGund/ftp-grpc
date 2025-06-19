@@ -165,7 +165,7 @@ pub async fn transfer_data(
                 }
             }
         }
-        Err(AppError::ClientError("Exceeded max retries".into()))
+        Err(AppError::ClientError("Exceeded max retries".into())) //This is REDUNDANT
     }
 
     // === Send message-only if applicable =======================================
@@ -211,8 +211,32 @@ pub async fn transfer_data(
     }
 
     drop(req_tx);
-
+    /*
+        THIS WAS NOT HANDLING ALL THE RESPONSES FROM TEH SERVER 
+     */
     // Wait for the final SUCCESS response from the server -----------------------
+    // while let Some(res) = response_stream.next().await {
+    //     match res {
+    //         Ok(resp) => {
+    //             let origin = resp
+    //                 .error_info
+    //                 .as_ref()
+    //                 .map(|e| e.error_code.as_str())
+    //                 .unwrap_or("UNKNOWN");
+    //             println!("[CLIENT] ACK received from {}. status: {}", origin, resp.status);
+    //             if resp.status == ftp::Status::Success as i32 || resp.status == ftp::Status::Failure as i32 {
+    //                 break;
+    //             }
+    //         }
+    //         Err(e) => {
+    //             println!("Server failed to transfer data to destination!");
+    //             return Err(AppError::TonicStatus(e));
+    //         }
+    //     }
+    // }
+    /*
+        THIS WILL HANDLE ALL  RESPONSES FROM THE SERVER NOW ..
+     */
     while let Some(res) = response_stream.next().await {
         match res {
             Ok(resp) => {
@@ -221,19 +245,71 @@ pub async fn transfer_data(
                     .as_ref()
                     .map(|e| e.error_code.as_str())
                     .unwrap_or("UNKNOWN");
+    
                 println!("[CLIENT] ACK received from {}. status: {}", origin, resp.status);
-                if resp.status == ftp::Status::Success as i32 || resp.status == ftp::Status::Failure as i32 {
-                    break;
+    
+                match ftp::Status::try_from(resp.status) {
+                    Ok(ftp::Status::InProgress) => {
+                        // Continue receiving chunks
+                    }
+                    Ok(ftp::Status::Success) => {
+                        println!("[CLIENT] Transfer completed successfully.");
+                        break;
+                    }
+                    Ok(ftp::Status::Failure) => {
+                        let details = resp
+                            .error_info
+                            .as_ref()
+                            .map(|e| e.error_details.as_str())
+                            .unwrap_or("No additional error details");
+    
+                        println!("[CLIENT] Transfer failed! Error from {}: {}", origin, details);
+                        break;
+                    }
+                    Ok(other) => {
+                        println!("[CLIENT] Unhandled status {:?} received from {}", other, origin);
+                        break;
+                    }
+                    Err(e) => {
+                        println!("[CLIENT] Unknown status code received from {}: {:?}", origin, e);
+                        break;
+                    }
                 }
                 // if let Some(tx) = &notifier {
                 //     let _ = tx.send(resp.clone());
                 // }
             }
-            Err(e) => {
-                return Err(AppError::TonicStatus(e));
+    
+            Err(status) => {
+                // This handles tonic::Status errors like connection failures or server-side early exits
+                println!(
+                    "[CLIENT] Error received from server: code = {}, message = {}",
+                    status.code(),
+                    status.message()
+                );
+    
+                // Decide what to do based on the error type
+                match status.code() {
+                    tonic::Code::NotFound => {
+                        println!("[CLIENT] Bank mapping not found on server. Terminating.");
+                    }
+                    tonic::Code::Internal => {
+                        println!("[CLIENT] Internal server error. Terminating.");
+                    }
+                    tonic::Code::Unavailable => {
+                        println!("[CLIENT] Destination unavailable. Terminating.");
+                    }
+                    _ => {
+                        println!("[CLIENT] Unexpected error. Terminating.");
+                    }
+                }
+    
+                // Close the connection or clean up here if needed
+                return Err(AppError::TonicStatus(status));
             }
         }
     }
+    
 
     Ok(())
 }
