@@ -1,17 +1,27 @@
 import axios from 'axios';
+import { useAuth } from './AuthContext';
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8080';
+
+
 
 export function uploadFile(
   file: File | null,
   message: string | null,
   destination: string,
+  sender: string | null,
   onProgress?: (pct: number) => void
 ) {
   const form = new FormData();
   if (file) form.append('file', file);
   if (message) form.append('message', message);
   form.append('destination', destination);
+  const { username } = useAuth();
+  if (username) {
+    form.append('sender', username);
+  }
+
+  console.log(form);
 
   return axios.post(`${BASE}/upload`, form, {
     headers: { 'Content-Type': 'multipart/form-data' },
@@ -21,6 +31,11 @@ export function uploadFile(
       onProgress(pct);
     },
   });
+}
+
+export function get_banks() {
+  let res = axios.get(`http:127.0.0.1:50052/api/available`);
+  console.log(res);
 }
 
 

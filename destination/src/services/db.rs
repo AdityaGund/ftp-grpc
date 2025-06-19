@@ -22,10 +22,10 @@ use crate::models::file_info_model::FileInfo;
 impl Database {
     
     pub async fn init() -> Self {
-        // let dest_env_path = Path::new(env!("CARGO_MANIFEST_DIR")).join(".env");
-        // if dotenv::from_path(dest_env_path.as_path()).is_err() {
-        //     dotenv().ok();
-        // };
+        let dest_env_path = Path::new(env!("CARGO_MANIFEST_DIR")).join(".env");
+        if dotenv::from_path(dest_env_path.as_path()).is_err() {
+            dotenv().ok();
+        };
         let uri = env::var("MONGO_URI").unwrap().to_string();
         let client = Client::with_uri_str(uri).await.unwrap();
 

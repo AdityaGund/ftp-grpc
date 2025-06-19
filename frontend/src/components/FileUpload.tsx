@@ -1,72 +1,108 @@
-import { useState, useRef, type ChangeEvent, type FormEvent } from 'react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
-import { toast } from 'sonner';
-// import { openEventStream, uploadFile } from '@/lib/api';
-import { uploadFile } from '@/lib/api';
-import { Upload, User, SendHorizontal, X, RotateCcw } from 'lucide-react';
-
-// interface Ack {
-//   transfer_id: string;
-//   status: number;
-// }
+import { useState, useEffect, type ChangeEvent, type FormEvent } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Progress } from "@/components/ui/progress";
+import { toast } from "sonner";
+import axios from "axios";
+import { uploadFile } from "@/lib/api";
+import { Upload, User, SendHorizontal, X, RotateCcw } from "lucide-react";
+import { useRef } from "react";
+import { useAuth } from "@/lib/AuthContext";
+interface Bank {
+  username: string;
+  ip: string;
+}
 
 export function FileUpload() {
   const [file, setFile] = useState<File | null>(null);
-  const [message, setMessage] = useState<string>('');
-  const [destination, setDestination] = useState<string>('');
+  const [message, setMessage] = useState<string>("");
+  const [destination, setDestination] = useState<string>("");
   const [uploading, setUploading] = useState<boolean>(false);
   const [progress, setProgress] = useState<number>(0);
+  const [banks, setBanks] = useState<Bank[]>([]);
+  const [filteredBanks, setFilteredBanks] = useState<Bank[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { logout, username } = useAuth(); // Access logout and username from AuthContext
 
-  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0]);
+  // Fetch available banks on component mount
+  useEffect(() => {
+    const token = localStorage.getItem("jwt");
+
+    axios
+      .get("http://127.0.0.1:50052/api/available", {
+        headers: {
+          Authorization: "Bearer " + token,
+        },
+      })
+      .then((response) => {
+        console.log("Available banks:", response.data);
+        setBanks(response.data); // Assuming response.data is an array of { username, ip }
+        setFilteredBanks(response.data); // Initialize filtered banks
+      })
+      .catch((error) => {
+        console.error("Error fetching available banks:", error);
+        toast.error("Failed to load available banks.");
+      });
+  }, []);
+
+  // Handle search/filtering of banks
+  const handleSearch = (e: ChangeEvent<HTMLInputElement>) => {
+    const searchTerm = e.target.value.toLowerCase();
+    setDestination(e.target.value); // Update destination as user types
+    if (searchTerm) {
+      const filtered = banks.filter((bank) =>
+        bank.username.toLowerCase().includes(searchTerm)
+      );
+      setFilteredBanks(filtered);
+    } else {
+      setFilteredBanks(banks); // Show all banks if search is empty
     }
   };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    
+
+    const { username } = useAuth();
+    console.log(username)
     if (!destination) {
-      toast.error('Please enter a destination');
+      toast.error("Please enter a destination");
       return;
     }
-    
+
     if (!file && !message) {
-      toast.error('Please upload a file or enter a message');
+      toast.error("Please upload a file or enter a message");
       return;
     }
-    
+
     setUploading(true);
     setProgress(0);
-    
+
     try {
       setProgress(0);
       const response = await uploadFile(
         file,
         message || null,
         destination,
+        username,
         (pct) => setProgress(pct)
       );
-      
-      toast.success('Transfer completed successfully!');
-      console.log('Upload response:', response);
+
+      toast.success("Transfer completed successfully!");
+      console.log("Upload response:", response);
       setProgress(100);
-      
+
       // Reset form
       setFile(null);
-      setMessage('');
+      setMessage("");
       if (fileInputRef.current) {
-        fileInputRef.current.value = '';
+        fileInputRef.current.value = "";
       }
     } catch (error) {
       setProgress(0);
-      toast.error('Transfer failed. Please try again.');
-      console.error('Upload error:', error);
+      toast.error("Transfer failed. Please try again.");
+      console.error("Upload error:", error);
     } finally {
       setUploading(false);
     }
@@ -74,32 +110,17 @@ export function FileUpload() {
 
   const handleReset = () => {
     setFile(null);
-    setMessage('');
-    setDestination('');
+    setMessage("");
+    setDestination("");
     setProgress(0);
     if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+      fileInputRef.current.value = "";
     }
+    setFilteredBanks(banks); // Reset filtered banks to all banks
   };
-
-  // useEffect(() => {
-  //   const dispose = openEventStream((msg) => {
-  //     if (typeof msg !== 'object' || msg === null) return;
-  //     const ack = msg as Ack;
-  //     switch (ack.status) {
-  //       case 0:
-  //         toast.success(`Transfer ${ack.transfer_id} completed`);
-  //         break;
-  //       case 2:
-  //         toast.error(`Transfer ${ack.transfer_id} failed`);
-  //         break;
-  //       default:
-  //         // For IN_PROGRESS and others just log.
-  //         console.log('[ACK]', ack);
-  //     }
-  //   });
-  //   return dispose;
-  // }, []);
+  const handleLogout = () => {
+    logout(); // Call the logout function
+  };
 
   return (
     <Card className="w-full max-w-md border border-border shadow-sm">
@@ -121,15 +142,31 @@ export function FileUpload() {
             </label>
             <Input
               id="destination"
-              placeholder="Enter destination ID"
+              placeholder="Search or enter destination ID"
               value={destination}
-              onChange={(e) => setDestination(e.target.value)}
+              onChange={handleSearch}
               disabled={uploading}
               required
               className="bg-background"
             />
+            {destination && filteredBanks.length > 0 && (
+              <ul className="mt-1 border border-border/50 rounded-md bg-background max-h-40 overflow-y-auto">
+                {filteredBanks.map((bank, index) => (
+                  <li
+                    key={index}
+                    className="px-3 py-2 text-sm hover:bg-muted cursor-pointer"
+                    onClick={() => {
+                      setDestination(bank.username);
+                      setFilteredBanks([]); // Clear suggestions after selection
+                    }}
+                  >
+                    {bank.username} ({bank.ip})
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
-          
+
           <div className="space-y-2">
             <label htmlFor="file" className="text-sm font-medium flex items-center gap-2">
               <Upload className="h-4 w-4 text-muted-foreground" />
@@ -140,18 +177,22 @@ export function FileUpload() {
                 ref={fileInputRef}
                 id="file"
                 type="file"
-                onChange={handleFileChange}
+                onChange={(e) => {
+                  if (e.target.files && e.target.files[0]) {
+                    setFile(e.target.files[0]);
+                  }
+                }}
                 disabled={uploading}
                 className="bg-background"
               />
               {file && (
-                <Button 
-                  size="icon" 
-                  variant="ghost" 
+                <Button
+                  size="icon"
+                  variant="ghost"
                   className="absolute right-2 top-1/2 -translate-y-1/2 h-6 w-6"
                   onClick={() => {
                     setFile(null);
-                    if (fileInputRef.current) fileInputRef.current.value = '';
+                    if (fileInputRef.current) fileInputRef.current.value = "";
                   }}
                   type="button"
                   disabled={uploading}
@@ -166,7 +207,7 @@ export function FileUpload() {
               </p>
             )}
           </div>
-          
+
           <div className="space-y-2">
             <label htmlFor="message" className="text-sm font-medium flex items-center gap-2">
               <SendHorizontal className="h-4 w-4 text-muted-foreground" />
@@ -182,7 +223,7 @@ export function FileUpload() {
               className="bg-background resize-none"
             />
           </div>
-          
+
           {uploading && (
             <div className="space-y-2">
               <div className="flex justify-between items-center">
@@ -192,29 +233,39 @@ export function FileUpload() {
               <Progress value={progress} className="h-2" />
             </div>
           )}
-          
+
           <div className="flex space-x-3 pt-2">
-            <Button 
-              type="submit" 
-              disabled={uploading} 
+            <Button
+              type="submit"
+              disabled={uploading}
               className="flex-1 gap-2"
             >
-              {uploading ? 'Uploading...' : 'Send'}
+              {uploading ? "Uploading..." : "Send"}
               <SendHorizontal className="h-4 w-4" />
             </Button>
-            <Button 
-              type="button" 
-              variant="outline" 
-              onClick={handleReset} 
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleReset}
               disabled={uploading}
               className="gap-2"
             >
               Reset
               <RotateCcw className="h-4 w-4" />
             </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={handleLogout}
+              className="gap-2"
+            >
+              Logout
+            </Button>
           </div>
         </form>
       </CardContent>
     </Card>
   );
-} 
+}
+
+export default FileUpload;

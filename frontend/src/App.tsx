@@ -1,37 +1,43 @@
-import { Layout } from "@/components/Layout";
-import { FileUpload } from "@/components/FileUpload";
-import Login from "@/components/Login";
-import { Toaster } from "@/components/ui/sonner";
-import { Route, Routes } from "react-router-dom";
+import type React from "react"
+import { Routes, Route, Navigate } from "react-router-dom"
+import Login from "./components/Login.tsx"
+import FileUpload from "./components/FileUpload.tsx"
+import ProtectedRoute from "./components/ProtectRoutes.tsx"
+import AdminHome from "./components/AdminHome"
+import Unauthorized from "./components/Unauthorized"
+import Layout from "./components/Layout.tsx"
+import  {ThemeProvider}  from "./components/theme-provider"
 
-function App() {
+const App: React.FC = () => {
   return (
-    <>
-      <Routes>
-        <Route
-          path="/"
-          element={
-            <Layout>
-              <div className="flex justify-center items-center min-h-[calc(100vh-8rem)]">
-                <Login />
-              </div>
-            </Layout>
-          }
-        />
-        <Route
-          path="/FileUpload"
-          element={
-            <Layout>
-              <div className="flex justify-center items-center min-h-[calc(100vh-8rem)]">
-                <FileUpload />
-              </div>
-            </Layout>
-          }
-        />
-      </Routes>
-      <Toaster position="bottom-right" theme="system" />
-    </>
-  );
+    <ThemeProvider defaultTheme="light" storageKey="vite-ui-theme">
+      <div className="min-h-screen bg-background">
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route element={<ProtectedRoute />}>
+            <Route
+              path="/FileUpload"
+              element={
+                <Layout>
+                  <FileUpload />
+                </Layout>
+              }
+            />
+            <Route
+              path="/adminHome"
+              element={
+                <Layout>
+                  <AdminHome />
+                </Layout>
+              }
+            />
+          </Route>
+          <Route path="/unauthorized" element={<Unauthorized />} />
+          <Route path="/" element={<Navigate to="/login" replace />} />
+        </Routes>
+      </div>
+    </ThemeProvider>
+  )
 }
 
-export default App;
+export default App

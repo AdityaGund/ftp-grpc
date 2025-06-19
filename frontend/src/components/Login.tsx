@@ -1,29 +1,33 @@
-"use client"
+// src/components/Login.tsx
+"use client";
 
-import type React from "react"
-import { useState } from "react"
-import { useNavigate } from "react-router-dom"
-import axios from "axios"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Button } from "@/components/ui/button"
-import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Lock, User, AlertCircle, Shield } from "lucide-react"
+import type React from "react";
+import { useState } from "react";
+import axios from "axios";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Lock, User, AlertCircle, Shield } from "lucide-react";
+import { useAuth } from "../lib/AuthContext"; // Ensure this path is correct based on your project structure
+import { useNavigate } from "react-router-dom"; // Added back for context compatibility
 
 const Login: React.FC = () => {
-  const [username, setUsername] = useState("")
-  const [password, setPassword] = useState("")
-  const [error, setError] = useState("")
-  const navigate = useNavigate()
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const { login } = useAuth(); // Use the auth context's login function
+  const navigate = useNavigate(); // Re-added for potential manual navigation if needed
 
   const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError("")
+    e.preventDefault();
+    console.log("handleLogin function called");
+    setError("");
 
     try {
-      const serverHost = "127.0.0.1"
-      const serverPort = "50052"
+      const serverHost =  "localhost";
+      const serverPort = "50052";
       const response = await axios.post(
         `http://${serverHost}:${serverPort}/login`,
         {},
@@ -32,24 +36,25 @@ const Login: React.FC = () => {
             username,
             password,
           },
-        },
-      )
+        }
+      );
 
-      const { token } = response.data
-      console.log('Login successful, token:", token')
-      // Store the JWT token in local storage
-      localStorage.setItem("jwt", token)
+      const { token, role, username: serverUsername }: { token: string; role: string; username: string } = response.data;
+      console.log("Login response data  :", response.data);
 
-      // Redirect to /FileUpload route
-      navigate("/FileUpload")
+      if (!role || !["bank", "admin"].includes(role)) {
+        throw new Error("Invalid role received from server");
+      }
+      console.log("Login successful, token:", token, "role:", role);
+      login(token, role as "bank" | "admin", username); // Update auth context with token and role
     } catch (err: any) {
-      setError(err.response?.data?.message || "Login failed")
+      setError(err.response?.data?.message || "Login failed");
     }
-  }
+  };
 
   return (
     <div className="w-full max-w-md mx-auto relative">
-      {/* Subtle background decoration */}
+      {/* Restore the subtle background gradient */}
       <div className="absolute -inset-4 bg-gradient-to-r from-blue-500/10 via-purple-500/10 to-emerald-500/10 rounded-3xl blur-xl opacity-60" />
 
       <Card className="relative bg-white/80 backdrop-blur-sm border-0 shadow-2xl shadow-slate-900/10">
@@ -67,8 +72,7 @@ const Login: React.FC = () => {
             </CardDescription>
           </div>
         </CardHeader>
-
-        <CardContent className="space-y-8 px-10 pb-10">
+        <CardContent>
           <form onSubmit={handleLogin} className="space-y-6">
             <div className="space-y-3">
               <Label htmlFor="username" className="text-sm font-bold text-slate-800 uppercase tracking-wide">
@@ -135,7 +139,7 @@ const Login: React.FC = () => {
         </CardContent>
       </Card>
     </div>
-  )
-}
+  );
+};
 
-export default Login
+export default Login;

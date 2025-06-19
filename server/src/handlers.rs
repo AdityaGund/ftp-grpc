@@ -13,6 +13,7 @@ use serde_json::json;
 pub async fn login(req: HttpRequest, db: web::Data<Database>) -> Result<HttpResponse, AppError> {
     // println!("[ADMIN SERVER] login request received");
     let auth = AuthService::new();
+     println!("[ADMIN SERVER] login request received, extracting values");
     // Helper to extract header value as &str
     let header_str = |name: &str| -> Result<&str, AppError> {
         req.headers()
@@ -51,8 +52,8 @@ pub async fn login(req: HttpRequest, db: web::Data<Database>) -> Result<HttpResp
     }
 
     let token = auth.generate_token(&username, &role, 60)?;
-    // println!("token generatec {token}");
-    Ok(HttpResponse::Ok().json(json!({"token": token})))
+    println!("token generatec {token}");
+    Ok(HttpResponse::Ok().json(json!({"token": token,"role": role, "username": username})))
 }
 
 #[post("/add")]
