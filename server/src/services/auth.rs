@@ -36,11 +36,11 @@ impl AuthService {
 
         // Build encoding/decoding keys once and reuse them.
         let pub_path = env::var("JWT_PUBLIC_KEY_PATH")
-            .expect("JWT_PRIVATE_KEY_PATH env var required (should point to RSA private key PEM file)");
+            .expect("JWT_PUBLIC_KEY_PATH env var required (should point to RSA public key PEM file)");
         let pub_bytes = fs::read(&pub_path)
-            .expect("Cannot read RSA private key");
+            .expect("Cannot read RSA public key");
         let decoding_key = DecodingKey::from_rsa_pem(&pub_bytes)
-            .expect("Invalid RSA private key (decoding)");
+            .expect("Invalid RSA public key (decoding)");
 
         Self { encoding_key, decoding_key }
     }

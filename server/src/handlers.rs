@@ -21,11 +21,10 @@ pub async fn login(req: HttpRequest, db: web::Data<Database>) -> Result<HttpResp
             .to_str()
             .map_err(|_| AppError::ClientError(format!("Invalid `{}` header", name)))
     };
-    println!("[ADMIN SERVER] login request received extracting values ");
+    // println!("[ADMIN SERVER] login request received extracting values ");
     let username = header_str("username")?.to_owned();
     let password = header_str("password")?.to_owned();
     // let role     = header_str("role")?.to_lowercase();
-    //hey copilot i have to extract the role based on the first character of username if its capital A then admin if its capital B then bank and if its antoher character then its an invalid role
     let role = if username.starts_with('A') {
         "admin".to_string()
     } else if username.starts_with('B') {
@@ -33,7 +32,7 @@ pub async fn login(req: HttpRequest, db: web::Data<Database>) -> Result<HttpResp
     } else {
         return Err(AppError::ClientError("Invalid username format".into()));
     };
-    println!("[ADMIN SERVER] {username}, {password}, {role}");
+    // println!("[ADMIN SERVER] {username}, {password}, {role}");
 
     // Fetch stored user
     let stored_hash_opt = match role.as_str() {
@@ -52,7 +51,7 @@ pub async fn login(req: HttpRequest, db: web::Data<Database>) -> Result<HttpResp
     }
 
     let token = auth.generate_token(&username, &role, 60)?;
-    println!("token generatec {token}");
+    // println!("token generatec {token}");
     Ok(HttpResponse::Ok().json(json!({"token": token})))
 }
 
