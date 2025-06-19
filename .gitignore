@@ -19,3 +19,6 @@ client/temp
 destination_files
 temp
 pass.md
+server/.env
+client/.env
+destination/.env

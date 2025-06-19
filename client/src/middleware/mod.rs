@@ -5,13 +5,7 @@ use actix_web_httpauth::extractors::bearer::BearerAuth;
 use crate::services::auth::AuthService;
 
 pub async fn validator(req: ServiceRequest, credentials: BearerAuth) -> Result<ServiceRequest, (Error, ServiceRequest)> {
-    // public paths
-    // println!("[ADMIN SERVER DEBUG] HERE 1");
-    let path = req.path();
-    if path == "/login" {
-        // println!("[ADMIN SERVER DEBUG] HERE 2");
-        return Ok(req);
-    }
+    // let path = req.path();
 
     let auth_service = AuthService::new();
     match auth_service.verify_token(credentials.token()) {

@@ -26,6 +26,11 @@ actix-cors = "0.7.1"
 async-stream = "=0.1.2"
 bytes = "1"
 mongodb = "3.2.3"
+jsonwebtoken = "9.3.1"
+argon2 = "0.5.3"
+bson = "2.15.0"
+futures = "0.3.31"
+actix-web-httpauth = "0.8.2"
 
 [build-dependencies]
 tonic-build = "0.13.1"

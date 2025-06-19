@@ -6,7 +6,16 @@ pub struct Database{
 use mongodb::results::InsertOneResult;
 use mongodb::{Client, Collection};
 use crate::error::AppError;
-use bson::doc;
+use bson::{doc};
+use futures::stream::TryStreamExt;
+
+
+#[derive(Debug, serde::Serialize)]
+pub struct BankSummary {
+    pub username: String,
+    pub ip: String,
+}
+
 
 use crate::models::user_model::{AdminUser, Bank};
 impl Database {
@@ -68,6 +77,30 @@ impl Database {
         Ok(result)
     }
     
+    pub async fn get_banks(&self) -> Result<Vec<BankSummary>, AppError> {
+        
+        let cursor = self
+        .bank_user
+        .find(doc! {})
+        .await
+        .map_err(|_| AppError::DatabaseError("Failed to query bank_user".into()))?;
+
+        let banks: Vec<Bank> = cursor
+            .try_collect()
+            .await
+            .map_err(|_| AppError::DatabaseError("Failed to collect banks".into()))?;
+
+        let summaries = banks
+            .into_iter()
+            .map(|bank| BankSummary {
+                username: bank.username,
+                ip: bank.ip,
+            })
+            .collect();
+
+        Ok(summaries)
+
+    }
 
     pub async fn find_admin_by_username(&self, username: &str) -> Result<Option<AdminUser>, AppError> {
         let admin_opt = self
