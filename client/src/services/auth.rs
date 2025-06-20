@@ -2,7 +2,7 @@ use std::env;
 use std::fs;
 
 use argon2::{password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString}, Argon2};
-use jsonwebtoken::{encode, decode, Header, Validation, EncodingKey, DecodingKey, Algorithm, TokenData};
+use jsonwebtoken::{decode, Validation, DecodingKey, Algorithm, TokenData};
 use serde::{Serialize, Deserialize};
 
 use crate::error::AppError;

@@ -16,17 +16,26 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = () => {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  // Redirect based on role if no specific route is matched (e.g., root or unmatched)
-  if (!location.pathname || location.pathname === "/login") {
+  // Role-based access control for known protected paths
+  const path = location.pathname;
+  if (path.startsWith("/adminHome") && user?.role !== "admin") {
+    return <Navigate to="/unauthorized" replace />;
+  }
+  if (path.startsWith("/FileUpload") && user?.role !== "bank") {
+    return <Navigate to="/unauthorized" replace />;
+  }
+
+  // If user navigates to root or /login while already authenticated, redirect them to their dashboard
+  if (path === "/" || path === "/login") {
+    if (user?.role === "admin") {
+      return <Navigate to="/adminHome" replace />;
+    }
     if (user?.role === "bank") {
       return <Navigate to="/FileUpload" replace />;
-    } else if (user?.role === "admin") {
-      return <Navigate to="/adminHome" replace />;
     }
   }
 
-  // Allow the matched route to render if authenticated
-  return <Outlet />;
+  return <Outlet />; // Allow route to render
 };
 
 export default ProtectedRoute;

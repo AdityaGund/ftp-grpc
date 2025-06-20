@@ -1,10 +1,13 @@
 use actix_web::{App, HttpServer};
-use actix_web_httpauth::middleware::HttpAuthentication;
 use std::env;
 use std::io::Result;
+use std::sync::Arc;
 use actix_cors::Cors;
 use std::path::Path;
 use dotenv::dotenv;
+use actix_web::web;
+
+use crate::services::db::Database;
 
 pub mod error;
 pub mod grpc_client;
@@ -39,13 +42,19 @@ pub async fn run_client() -> Result<()> {
 
     println!("[CLIENT GRPC] Starting Actix-web server at http://{}", addr);
 
+    let db = web::Data::new(Arc::new(Database::init().await));
+
     HttpServer::new(move || {
-        let cors = Cors::permissive();
+        let cors = Cors::default()
+            .allowed_origin("http://localhost:5173")
+            .allowed_methods(vec!["GET", "POST", "PUT", "DELETE", "OPTIONS"])
+            .allow_any_header()
+            .max_age(3600);
+    
         App::new()
-            // .app_data(web::Data::new(app_state.clone()))
+            .app_data(db.clone())
             .wrap(cors)
-            .wrap(HttpAuthentication::bearer(middleware::validator))
-            // .app_data(grpc_client.clone())
+            // .wrap(HttpAuthentication::bearer(middleware::validator))
             .configure(routes::configure_routes)
     })
     .bind(&addr)?

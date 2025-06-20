@@ -3,7 +3,7 @@
 use actix_multipart::Multipart;
 // use actix_web::web::Bytes;
 // use actix_web::{HttpResponse, web, Responder};
-use actix_web::{HttpResponse};
+use actix_web::{web, HttpResponse};
 use futures_util::{TryStreamExt};
 // use serde::de::value::Error;
 use tokio::fs::{self, File};
@@ -20,8 +20,9 @@ use tokio::io::AsyncWriteExt;
 use crate::error::{self, AppError};
 // use crate::grpc_client::TransferResponse;
 use crate::grpc_client::{self, ftp::transfer_service_client::TransferServiceClient};
+use crate::services::db::Database;
 use serde_json;
-use actix_web::post;
+use actix_web::{post, get};
 
 // pub async fn upload(state: web::Data<AppState>, mut payload: Multipart) -> Result<HttpResponse, AppError> {
 #[post("/upload")]
@@ -151,6 +152,15 @@ pub async fn upload( mut payload: Multipart) -> Result<HttpResponse, AppError> {
     }
 }
 
+#[get("/file-info")]
+pub async fn fetch_info(db: web::Data<std::sync::Arc<Database>>) -> Result<HttpResponse, AppError> {
+    // Fetch all file information from the database
+    let files = db.get_file_info().await?;
+
+    Ok(HttpResponse::Ok().json(serde_json::json!({
+        "data": files
+    })))
+}
 // pub async fn events_stream(state: web::Data<AppState>) -> impl Responder {
 //     let rx = state.notifier.subscribe();
 //     let stream = BroadcastStream::new(rx).map(|msg| match msg {

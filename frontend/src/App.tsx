@@ -1,41 +1,42 @@
 import type React from "react"
 import { Routes, Route, Navigate } from "react-router-dom"
 import Login from "./components/Login.tsx"
-import FileUpload from "./components/FileUpload.tsx"
+import BankHome from "./components/BankHome.tsx"
 import ProtectedRoute from "./components/ProtectRoutes.tsx"
 import AdminHome from "./components/AdminHome"
 import Unauthorized from "./components/Unauthorized"
 import Layout from "./components/Layout.tsx"
-import  {ThemeProvider}  from "./components/theme-provider"
+import  {ThemeProvider}  from "./components/ui/theme-provider.tsx"
+import './index.css';
 
 const App: React.FC = () => {
   return (
-    <ThemeProvider defaultTheme="light" storageKey="vite-ui-theme">
-      <div className="min-h-screen bg-background">
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route element={<ProtectedRoute />}>
-            <Route
-              path="/FileUpload"
-              element={
-                <Layout>
-                  <FileUpload />
-                </Layout>
-              }
-            />
-            <Route
-              path="/adminHome"
-              element={
-                <Layout>
-                  <AdminHome />
-                </Layout>
-              }
-            />
-          </Route>
-          <Route path="/unauthorized" element={<Unauthorized />} />
-          <Route path="/" element={<Navigate to="/login" replace />} />
-        </Routes>
-      </div>
+    <ThemeProvider defaultTheme="system" storageKey="vite-ui-theme">
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        
+        <Route element={<ProtectedRoute />}>
+          <Route
+            path="/bank"
+            element={
+              <Layout>
+                <BankHome />
+              </Layout>
+            }
+          />
+          <Route
+            path="/adminHome"
+            element={
+              <Layout>
+                <AdminHome />
+              </Layout>
+            }
+          />
+        </Route>
+        
+        <Route path="/unauthorized" element={<Unauthorized />} />
+        <Route path="/" element={<Navigate to="/login" replace />} />
+      </Routes>
     </ThemeProvider>
   )
 }

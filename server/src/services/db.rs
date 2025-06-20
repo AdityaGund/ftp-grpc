@@ -3,7 +3,7 @@ pub struct Database{
     bank_user: Collection<Bank>,
     admin_user: Collection<AdminUser>
 }
-use mongodb::results::InsertOneResult;
+use mongodb::results::{InsertOneResult, UpdateResult, DeleteResult};
 use mongodb::{Client, Collection};
 use crate::error::AppError;
 use bson::{doc};
@@ -16,6 +16,10 @@ pub struct BankSummary {
     pub ip: String,
 }
 
+#[derive(Debug, serde::Serialize)]
+pub struct AdminSummary {
+    pub username: String,
+}
 
 use crate::models::user_model::{AdminUser, Bank};
 impl Database {
@@ -120,6 +124,80 @@ impl Database {
             .map_err(|_| AppError::DatabaseError("Failed to query bank_user".into()))?;
 
         Ok(bank_opt)
+    }
+
+    pub async fn update_admin_password(&self, username: &str, new_password: &str) -> Result<UpdateResult, AppError> {
+        let result = self
+            .admin_user
+            .update_one(
+                doc! { "username": username },
+                doc! { "$set": { "password": new_password } },
+            )
+            .await
+            .map_err(|_| AppError::DatabaseError("Failed to update admin user".into()))?;
+        Ok(result)
+    }
+
+    pub async fn update_bank(&self, username: &str, new_password: Option<&str>, new_ip: Option<&str>) -> Result<UpdateResult, AppError> {
+        let mut update_doc = doc! {};
+        if let Some(pw) = new_password {
+            update_doc.insert("password", pw);
+        }
+        if let Some(ip) = new_ip {
+            update_doc.insert("ip", ip);
+        }
+        if update_doc.is_empty() {
+            return Err(AppError::ClientError("Nothing to update".into()));
+        }
+        let result = self
+            .bank_user
+            .update_one(
+                doc! { "username": username },
+                doc! { "$set": update_doc },
+            )
+            .await
+            .map_err(|_| AppError::DatabaseError("Failed to update bank user".into()))?;
+        Ok(result)
+    }
+
+    pub async fn delete_admin(&self, username: &str) -> Result<DeleteResult, AppError> {
+        let result = self
+            .admin_user
+            .delete_one(doc! { "username": username })
+            .await
+            .map_err(|_| AppError::DatabaseError("Failed to delete admin user".into()))?;
+        Ok(result)
+    }
+
+    pub async fn delete_bank(&self, username: &str) -> Result<DeleteResult, AppError> {
+        let result = self
+            .bank_user
+            .delete_one(doc! { "username": username })
+            .await
+            .map_err(|_| AppError::DatabaseError("Failed to delete bank user".into()))?;
+        Ok(result)
+    }
+
+    pub async fn get_admins(&self) -> Result<Vec<AdminSummary>, AppError> {
+        let cursor = self
+            .admin_user
+            .find(doc! {})
+            .await
+            .map_err(|_| AppError::DatabaseError("Failed to query admin_user".into()))?;
+
+        let admins: Vec<AdminUser> = cursor
+            .try_collect()
+            .await
+            .map_err(|_| AppError::DatabaseError("Failed to collect admins".into()))?;
+
+        let summaries = admins
+            .into_iter()
+            .map(|admin| AdminSummary {
+                username: admin.username,
+            })
+            .collect();
+
+        Ok(summaries)
     }
 
 }

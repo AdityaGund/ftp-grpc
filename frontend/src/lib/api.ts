@@ -1,61 +1,100 @@
 import axios from 'axios';
-import { useAuth } from './AuthContext';
 
-const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8080';
+// Base URL of the Bank *client* HTTP server that exposes /upload
+// You can override it in your .env file using VITE_CLIENT_API_URL
+const BASE = import.meta.env.VITE_CLIENT_API_URL ?? 'http://localhost:8081';
 
-
-
+/**
+ * Upload a file or message to the /upload endpoint that the Rust *client* crate exposes.
+ *
+ * @param file        Optional file to upload
+ * @param message     Optional text message
+ * @param destination Receiver bank username/id
+ * @param sender      Username of the currently-authenticated bank user
+ * @param token       JWT returned by the /login endpoint – required by the server for auth
+ * @param onProgress  Optional callback to track upload progress (0-100)
+ */
 export function uploadFile(
   file: File | null,
   message: string | null,
   destination: string,
   sender: string | null,
-  onProgress?: (pct: number) => void
+  token: string | null,
+  // onProgress?: (pct: number) => void,
 ) {
   const form = new FormData();
   if (file) form.append('file', file);
   if (message) form.append('message', message);
   form.append('destination', destination);
-  const { username } = useAuth();
-  if (username) {
-    form.append('sender', username);
-  }
-
-  console.log(form);
+  if (sender) form.append('sender', sender);
 
   return axios.post(`${BASE}/upload`, form, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-    onUploadProgress: (e) => {
-      if (!onProgress) return;
-      const pct = Math.round((e.loaded / (e.total ?? 1)) * 100);
-      onProgress(pct);
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    // onUploadProgress: (e) => {
+    //   if (!onProgress) return;
+    //   const pct = Math.round((e.loaded / (e.total ?? 1)) * 100);
+    //   onProgress(pct);
+    // },
+  });
+}
+
+export function fetchAvailableBanks(token: string | null) {
+  const baseUrl = import.meta.env.VITE_SERVER_API_URL ?? 'http://127.0.0.1:50052';
+  return axios.get(`${baseUrl}/api/available`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+}
+
+export function updateUser(
+  username: string,
+  newPassword: string | null,
+  newIp: string | null,
+  token: string | null,
+) {
+  const baseUrl = import.meta.env.VITE_SERVER_API_URL ?? 'http://127.0.0.1:50052';
+  return axios.post(`${baseUrl}/api/update`, {}, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      username,
+      ...(newPassword ? { password: newPassword } : {}),
+      ...(newIp ? { ip: newIp } : {}),
     },
   });
 }
 
-export function get_banks() {
-  let res = axios.get(`http:127.0.0.1:50052/api/available`);
-  console.log(res);
+export function deleteUser(username: string, token: string | null) {
+  const baseUrl = import.meta.env.VITE_SERVER_API_URL ?? 'http://127.0.0.1:50052';
+  return axios.post(`${baseUrl}/api/delete`, {}, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      username,
+    },
+  });
 }
 
+export function fetchUsers(token: string | null) {
+  const baseUrl = import.meta.env.VITE_SERVER_API_URL ?? 'http://127.0.0.1:50052';
+  return axios.get(`${baseUrl}/api/users`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+}
 
-// export function openEventStream(onMsg: (ev: unknown) => void) {
-//   const es = new EventSource(`${BASE}/events`);
-//   es.onmessage = (e) => {
-//     try {
+/**
+ * Fetch file information from the client API
+ */
+export function fetchFileInfo(token: string | null) {
+  return axios.get(`${BASE}/file-info`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+}
 
-//       // console.log(e.data);
-//       const payload = JSON.parse(e.data);
-//       // console.log('[ACK]', payload);
-//       onMsg(payload);
-//     } catch (err) {
-//       console.error('Failed to parse event data', err);
-//     }
-//   };
-//   return () => es.close();
-// }
-
-export const api={
+export const api = {
   uploadFile,
-  // openEventStream,
-}
+  fetchAvailableBanks,
+  updateUser,
+  deleteUser,
+  fetchUsers,
+  fetchFileInfo,
+};

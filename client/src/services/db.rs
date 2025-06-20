@@ -7,6 +7,8 @@ use mongodb::{Client, Collection};
 use bson::{doc};
 use std::path::Path;
 use dotenv::dotenv;
+use futures::stream::TryStreamExt;
+use crate::error::AppError;
 
 
 #[derive(Debug, serde::Serialize)]
@@ -37,6 +39,20 @@ impl Database {
         Database{
             file_info,
         }
+    }
 
+    pub async fn get_file_info(&self) -> Result<Vec<FileInfo>, AppError> {
+        let cursor = self
+            .file_info
+            .find(doc! {})
+            .await
+            .map_err(|_| AppError::DatabaseError("Failed to query file info".into()))?;
+
+        let files: Vec<FileInfo> = cursor
+            .try_collect()
+            .await
+            .map_err(|_| AppError::DatabaseError("Failed to collect file info".into()))?;
+
+        Ok(files)
     }
 }
