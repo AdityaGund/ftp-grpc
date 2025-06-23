@@ -188,12 +188,19 @@ export const columns: ColumnDef<FileInfo>[] = [
         <ArrowUpDown className="ml-2 h-4 w-4" />
       </Button>
     ),
-    cell: ({ row }) => <div className="font-medium">{row.getValue("name")}</div>,
+    cell: ({ row }) =>{
+      const name = row.getValue("name");
+      return (
+        <div className="font-medium">
+          {typeof name === "string" && name.trim() !== "" ? name : "N/A"}
+        </div>
+      );
+    }
   },
-//   {
-    // accessorKey: "path",
-    // header: "Path",
-//   },
+  //   {
+  // accessorKey: "path",
+  // header: "Path",
+  //   },
   {
     accessorKey: "sender_bank_id",
     header: "From",
@@ -205,14 +212,14 @@ export const columns: ColumnDef<FileInfo>[] = [
   {
     accessorKey: "time_sent_at",
     header: ({ column }) => (
-        <Button
-          variant="ghost"
-          onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-        >
-          Sent
-          <ArrowUpDown className="ml-2 h-4 w-4" />
-        </Button>
-      ),
+      <Button
+        variant="ghost"
+        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+      >
+        Sent
+        <ArrowUpDown className="ml-2 h-4 w-4" />
+      </Button>
+    ),
     cell: ({ row }) => <div>{formatDateTime(row.getValue("time_sent_at"))}</div>,
   },
   {
@@ -256,8 +263,8 @@ export function FileInfoDisplay({ files, loading, onRefresh, title, description 
                 {description}
               </CardDescription>
             </div>
-            <Button 
-              onClick={onRefresh} 
+            <Button
+              onClick={onRefresh}
               disabled={loading}
               variant="outline"
               size="sm"
@@ -286,9 +293,9 @@ export function FileInfoDisplay({ files, loading, onRefresh, title, description 
                             {header.isPlaceholder
                               ? null
                               : flexRender(
-                                  header.column.columnDef.header,
-                                  header.getContext()
-                                )}
+                                header.column.columnDef.header,
+                                header.getContext()
+                              )}
                           </TableHead>
                         )
                       })}
