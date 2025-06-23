@@ -21,36 +21,40 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   const getRoleLabel = () => {
     if (user?.role === "admin") {
-      return "Admin"
+      return "Administrator"
     }
-    return "Bank"
+    return "Bank User"
   }
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50">
+      <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50 shadow-sm">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex h-16 items-center justify-between">
-            <div className="flex items-center space-x-2">
-              <div className="h-8 w-8 bg-primary rounded-lg flex items-center justify-center">
+            <div className="flex items-center space-x-3 cursor-pointer">
+              <div className="h-8 w-8 bg-primary rounded-lg flex items-center justify-center shadow-md hover:shadow-lg transition-all duration-200 hover:scale-105">
                 <Shield className="h-4 w-4 text-primary-foreground" />
               </div>
-              <h1 className="text-lg font-semibold hidden sm:block">File Transfer</h1>
-              <h1 className="text-base font-semibold sm:hidden">FTP</h1>
+              <div>
+                <h1 className="text-lg font-bold hidden sm:block hover:text-primary transition-colors duration-200">File Transfer System</h1>
+                <h1 className="text-base font-bold sm:hidden hover:text-primary transition-colors duration-200">FTS</h1>
+              </div>
             </div>
 
-            <div className="flex items-center space-x-3">
+            <div className="flex items-center space-x-4">
               {/* User Info */}
-              <div className="flex items-center space-x-2 px-3 py-2 rounded-lg bg-muted/50 border">
-                <div className="flex items-center space-x-2">
-                  {getRoleIcon()}
+              <div className="flex items-center space-x-3 px-4 py-2 rounded-lg bg-muted/50 border border-border/50 hover:bg-muted/70 hover:border-border transition-all duration-200">
+                <div className="flex items-center space-x-3">
+                  <div className="p-1 bg-primary/10 rounded-md">
+                    {getRoleIcon()}
+                  </div>
                   <div className="hidden sm:block">
-                    <p className="text-sm font-medium">{username}</p>
-                    <p className="text-xs text-muted-foreground">{getRoleLabel()}</p>
+                    <p className="text-sm font-semibold leading-none">{username}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{getRoleLabel()}</p>
                   </div>
                   {/* Mobile view - compact username */}
                   <div className="sm:hidden">
-                    <p className="text-xs font-medium truncate max-w-16">{username}</p>
+                    <p className="text-xs font-semibold truncate max-w-16">{username}</p>
                   </div>
                 </div>
               </div>
@@ -63,7 +67,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                 variant="outline"
                 size="sm"
                 onClick={logout}
-                className="flex items-center space-x-2 hover:bg-destructive hover:text-destructive-foreground transition-colors"
+                className="flex items-center space-x-2 hover:bg-destructive hover:text-destructive-foreground hover:border-destructive transition-all duration-200 font-medium"
               >
                 <LogOut className="h-4 w-4" />
                 <span className="hidden sm:inline">Logout</span>
@@ -73,7 +77,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         </div>
       </header>
       
-      <main className="container mx-auto py-6 px-4 sm:px-6 lg:px-8">
+      <main className="container mx-auto py-8 px-4 sm:px-6 lg:px-8">
         <div className="flex justify-center">
           <div className="w-full">
             {children}

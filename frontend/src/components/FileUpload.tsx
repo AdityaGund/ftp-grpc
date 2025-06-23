@@ -99,24 +99,32 @@ export function FileUpload() {
     }
   };
 
+  const handleFileSelect = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+
   return (
-    <div className="w-full max-w-2xl mx-auto">
-      <Card className="border-2 border-border shadow-md">
-        <CardHeader className="border-b-2 border-border pb-6">
-          <CardTitle className="flex items-center gap-2 text-xl">
-            <Upload className="h-5 w-5 text-primary" />
-            <span>File Transfer</span>
+    <div className="w-full max-w-3xl mx-auto">
+      <Card className="border shadow-lg hover:shadow-xl transition-all duration-300">
+        <CardHeader className="border-b border-border/50 pb-6">
+          <CardTitle className="flex items-center gap-3 text-2xl font-bold">
+            <div className="p-2 bg-primary/10 rounded-lg">
+              <Upload className="h-6 w-6 text-primary" />
+            </div>
+            <span>Secure File Transfer</span>
           </CardTitle>
-          <CardDescription className="text-base">
-            Transfer files or messages securely via gRPC
+          <CardDescription className="text-base leading-relaxed">
+            Transfer files or messages securely via encrypted gRPC connection
           </CardDescription>
         </CardHeader>
-        <CardContent className="p-6">
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="space-y-3">
-              <label htmlFor="destination" className="text-sm font-medium flex items-center gap-2">
+        <CardContent className="p-8">
+          <form onSubmit={handleSubmit} className="space-y-8">
+            <div className="space-y-4">
+              <label htmlFor="destination" className="text-sm font-semibold flex items-center gap-2 cursor-pointer">
                 <User className="h-4 w-4 text-muted-foreground" />
-                <span>Destination</span>
+                <span>Destination Bank</span>
               </label>
               <div className="relative">
                 <select
@@ -128,9 +136,9 @@ export function FileUpload() {
                   }}
                   disabled={uploading}
                   required
-                  className="w-full p-2 border rounded-md bg-background"
+                  className="w-full p-3 border rounded-lg bg-background hover:border-ring/60 focus:border-ring focus:ring-ring/50 focus:ring-[3px] transition-all duration-200 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  <option value="" disabled>-- Select a destination --</option>
+                  <option value="" disabled>-- Select a destination bank --</option>
                   {banks.map((bank) => (
                     <option key={bank.username} value={bank.username}>
                       {bank.username} ({bank.ip})
@@ -138,14 +146,19 @@ export function FileUpload() {
                   ))}
                 </select>
               </div>
+              {selectedBank && (
+                <div className="text-sm text-muted-foreground bg-muted/30 p-3 rounded-lg border">
+                  <strong>Selected:</strong> {selectedBank.username} • <strong>IP:</strong> {selectedBank.ip}
+                </div>
+              )}
             </div>
 
-            <div className="space-y-3">
-              <label htmlFor="file" className="text-sm font-medium flex items-center gap-2">
+            <div className="space-y-4">
+              <label htmlFor="file" className="text-sm font-semibold flex items-center gap-2 cursor-pointer">
                 <Upload className="h-4 w-4 text-muted-foreground" />
-                <span>File</span>
+                <span>File Upload</span>
               </label>
-              <div className="relative">
+              <div className="space-y-3">
                 <Input
                   ref={fileInputRef}
                   id="file"
@@ -156,77 +169,82 @@ export function FileUpload() {
                     }
                   }}
                   disabled={uploading}
-                  className="bg-background"
+                  className="hidden"
                 />
+                <div 
+                  onClick={handleFileSelect}
+                  className="border-2 border-dashed border-border hover:border-primary/50 transition-all duration-200 rounded-lg p-6 text-center cursor-pointer hover:bg-muted/30 group"
+                >
+                  <Upload className="mx-auto h-8 w-8 text-muted-foreground group-hover:text-primary transition-colors duration-200" />
+                  <p className="mt-2 text-sm text-muted-foreground group-hover:text-foreground transition-colors duration-200">
+                    Click to select a file or drag and drop
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Supports various file formats
+                  </p>
+                </div>
                 {file && (
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="absolute right-2 top-1/2 -translate-y-1/2 h-6 w-6"
-                    onClick={() => {
-                      setFile(null);
-                      if (fileInputRef.current) fileInputRef.current.value = "";
-                    }}
-                    type="button"
-                    disabled={uploading}
-                  >
-                    <X className="h-3 w-3" />
-                  </Button>
+                  <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg border">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 bg-primary/10 rounded-md">
+                        <Upload className="h-4 w-4 text-primary" />
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium">{file.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {(file.size / 1024).toFixed(2)} KB
+                        </p>
+                      </div>
+                    </div>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8 hover:bg-destructive/10 hover:text-destructive"
+                      onClick={() => {
+                        setFile(null);
+                        if (fileInputRef.current) fileInputRef.current.value = "";
+                      }}
+                      type="button"
+                      disabled={uploading}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
                 )}
               </div>
-              {file && (
-                <p className="text-sm text-muted-foreground bg-muted/50 p-2 rounded border-2 border-border">
-                  Selected: <span className="font-medium">{file.name}</span> ({(file.size / 1024).toFixed(2)} KB)
-                </p>
-              )}
             </div>
 
-            <div className="space-y-3">
-              <label htmlFor="message" className="text-sm font-medium flex items-center gap-2">
+            <div className="space-y-4">
+              <label htmlFor="message" className="text-sm font-semibold flex items-center gap-2 cursor-pointer">
                 <SendHorizontal className="h-4 w-4 text-muted-foreground" />
-                <span>Message</span>
+                <span>Message (Optional)</span>
               </label>
               <Textarea
                 id="message"
-                placeholder="Enter a message (optional)"
+                placeholder="Enter an optional message to accompany your transfer..."
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
                 disabled={uploading}
                 rows={4}
-                className="bg-background resize-none"
+                className="bg-background resize-none hover:border-ring/60 focus:border-ring transition-all duration-200"
               />
             </div>
 
-            {/* {uploading && (
-              <div className="space-y-3 p-4 bg-muted/30 rounded-lg border">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Spinner size="sm" />
-                    <span className="text-sm font-medium">Uploading...</span>
-                  </div>
-                  <span className="text-sm text-muted-foreground">{progress}%</span>
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  Please wait while your file is being transferred securely
-                </div>
-              </div>
-            )} */}
-
-            <div className="flex flex-col sm:flex-row gap-3 pt-4">
+            <div className="flex flex-col sm:flex-row gap-4 pt-6">
               <Button
                 type="submit"
-                disabled={uploading}
-                className="flex-1 gap-2"
+                disabled={uploading || (!file && !message)}
+                className="flex-1 gap-2 h-11 text-base font-semibold"
               >
                 {uploading ? (
                   <>
                     <Spinner size="sm" />
-                    Uploading...
+                    Transferring...
                   </>
                 ) : (
                   <>
-                    Send
-                    <SendHorizontal className="h-4 w-4" />
+                    <SendHorizontal className="h-5 w-5" />
+                    Send Transfer
                   </>
                 )}
               </Button>
@@ -235,12 +253,20 @@ export function FileUpload() {
                 variant="outline"
                 onClick={handleReset}
                 disabled={uploading}
-                className="gap-2"
+                className="gap-2 h-11 min-w-[120px] font-medium"
               >
-                Reset
                 <RotateCcw className="h-4 w-4" />
+                Reset Form
               </Button>
             </div>
+
+            {(!file && !message) && (
+              <div className="text-center p-4 bg-muted/20 rounded-lg border">
+                <p className="text-sm text-muted-foreground">
+                  Please select a file or enter a message to proceed with the transfer.
+                </p>
+              </div>
+            )}
           </form>
         </CardContent>
       </Card>

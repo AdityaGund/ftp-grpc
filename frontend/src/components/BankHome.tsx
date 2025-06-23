@@ -1,13 +1,11 @@
 import { useState, useEffect } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
 import { Upload, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { fetchFileInfo } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
 import FileUpload from "./FileUpload";
 import FileInfoDisplay from "./ui/FileInfo";
-// import BankFileInfo from "./BankFileInfo";
+import { TabContainer } from "./ui/TabContainer";
 
 interface FileInfo {
   _id: string | object;
@@ -21,7 +19,6 @@ interface FileInfo {
 }
 
 export function BankHome() {
-  const [activeTab, setActiveTab] = useState<"upload" | "files">("upload");
   const [files, setFiles] = useState<FileInfo[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const { username } = useAuth();
@@ -50,50 +47,35 @@ export function BankHome() {
     loadFileInfo();
   };
 
-  return (
-    <div className="w-full max-w-6xl mx-auto">
-      <Card className="border-2 border-border shadow-md mb-6">
-        <CardHeader className="border-b-2 border-border pb-4">
-          <CardTitle className="text-xl">Bank Dashboard</CardTitle>
-        </CardHeader>
-        <CardContent className="p-6">
-          <div className="flex space-x-2 mb-6">
-            <Button
-              variant={activeTab === "upload" ? "default" : "outline"}
-              onClick={() => setActiveTab("upload")}
-              className="flex items-center gap-2"
-            >
-              <Upload className="h-4 w-4" />
-              File Upload
-            </Button>
-            <Button
-              variant={activeTab === "files" ? "default" : "outline"}
-              onClick={() => setActiveTab("files")}
-              className="flex items-center gap-2"
-            >
-              <FileText className="h-4 w-4" />
-              File History
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {activeTab === "upload" && <FileUpload />}
-      {activeTab === "files" && (
-        // <BankFileInfo 
-        //   files={files}
-        //   loading={loading}
-        //   onRefresh={handleRefresh}
-        //   username={username}
-        // />
+  const tabs = [
+    {
+      id: "upload",
+      label: "File Upload",
+      icon: Upload,
+      content: <FileUpload />
+    },
+    {
+      id: "files",
+      label: "File History",
+      icon: FileText,
+      content: (
         <FileInfoDisplay
           files={files}
           loading={loading}
           onRefresh={handleRefresh}
           title="File Transfer History"
-          description={`View all file transfers for bank: ${username}`}
+          description={`Complete file transfer records for bank: ${username}`}
         />
-      )}
+      )
+    }
+  ];
+
+  return (
+    <div className="w-full max-w-6xl mx-auto">
+      <TabContainer 
+        tabs={tabs} 
+        defaultTab="upload"
+      />
     </div>
   );
 }

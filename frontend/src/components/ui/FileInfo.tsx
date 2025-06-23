@@ -196,31 +196,56 @@ export const columns: ColumnDef<FileInfo>[] = [
       <Button
         variant="ghost"
         onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        className="hover:bg-muted/50 font-semibold"
       >
-        Name
+        File Name
         <ArrowUpDown className="ml-2 h-4 w-4" />
       </Button>
     ),
     cell: ({ row }) =>{
       const name = row.getValue("name");
       return (
-        <div className="font-medium">
+        <div className="font-medium text-foreground">
           {typeof name === "string" && name.trim() !== "" ? name : "N/A"}
         </div>
       );
     }
   },
-  //   {
-  // accessorKey: "path",
-  // header: "Path",
-  //   },
   {
     accessorKey: "sender_bank_id",
-    header: "From",
+    header: ({ column }) => (
+      <Button
+        variant="ghost"
+        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        className="hover:bg-muted/50 font-semibold"
+      >
+        From
+        <ArrowUpDown className="ml-2 h-4 w-4" />
+      </Button>
+    ),
+    cell: ({ row }) => (
+      <div className="font-medium text-muted-foreground">
+        {row.getValue("sender_bank_id") || "N/A"}
+      </div>
+    ),
   },
   {
     accessorKey: "receiver_bank_id",
-    header: "To",
+    header: ({ column }) => (
+      <Button
+        variant="ghost"
+        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        className="hover:bg-muted/50 font-semibold"
+      >
+        To
+        <ArrowUpDown className="ml-2 h-4 w-4" />
+      </Button>
+    ),
+    cell: ({ row }) => (
+      <div className="font-medium text-muted-foreground">
+        {row.getValue("receiver_bank_id") || "N/A"}
+      </div>
+    ),
   },
   {
     accessorKey: "time_sent_at",
@@ -229,12 +254,17 @@ export const columns: ColumnDef<FileInfo>[] = [
       <Button
         variant="ghost"
         onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        className="hover:bg-muted/50 font-semibold"
       >
-        Sent
+        Sent At
         <ArrowUpDown className="ml-2 h-4 w-4" />
       </Button>
     ),
-    cell: ({ row }) => <div>{formatDateTime(row.getValue("time_sent_at"))}</div>,
+    cell: ({ row }) => (
+      <div className="text-sm text-muted-foreground">
+        {formatDateTime(row.getValue("time_sent_at"))}
+      </div>
+    ),
   },
   {
     accessorKey: "time_received_at",
@@ -243,23 +273,46 @@ export const columns: ColumnDef<FileInfo>[] = [
       <Button
         variant="ghost"
         onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        className="hover:bg-muted/50 font-semibold"
       >
-        Received
+        Received At
         <ArrowUpDown className="ml-2 h-4 w-4" />
       </Button>
     ),
-    cell: ({ row }) => <div>{formatDateTime(row.getValue("time_received_at"))}</div>,
+    cell: ({ row }) => (
+      <div className="text-sm text-muted-foreground">
+        {formatDateTime(row.getValue("time_received_at"))}
+      </div>
+    ),
   },
   {
     accessorKey: "message",
-    header: "Message",
-    cell: ({ row }) => <div className="truncate max-w-xs">{row.getValue("message")}</div>,
+    header: ({ column }) => (
+      <Button
+        variant="ghost"
+        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+        className="hover:bg-muted/50 font-semibold"
+      >
+        Message
+        <ArrowUpDown className="ml-2 h-4 w-4" />
+      </Button>
+    ),
+    cell: ({ row }) => {
+      const message = row.getValue("message") as string;
+      return (
+        <div className="max-w-xs truncate text-sm text-muted-foreground" title={message}>
+          {message || "No message"}
+        </div>
+      );
+    },
   },
 ];
 
 // The main display component
 export function FileInfoDisplay({ files, loading, onRefresh, title, description }: FileInfoDisplayProps) {
-  const [sorting, setSorting] = React.useState<SortingState>([])
+  const [sorting, setSorting] = React.useState<SortingState>([
+    { id: "time_sent_at", desc: true }
+  ])
 
   const table = useReactTable({
     data: files,
@@ -273,16 +326,18 @@ export function FileInfoDisplay({ files, loading, onRefresh, title, description 
   })
 
   return (
-    <div className="w-full max-w-6xl mx-auto">
-      <Card className="border-2 border-border shadow-md">
-        <CardHeader className="border-b-2 border-border pb-6">
+    <div className="w-full mx-auto">
+      <Card className="border shadow-lg hover:shadow-xl transition-all duration-300">
+        <CardHeader className="border-b border-border/50 pb-6">
           <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="flex items-center gap-2 text-xl">
-                <FileText className="h-5 w-5 text-primary" />
+            <div className="space-y-2">
+              <CardTitle className="flex items-center gap-3 text-2xl font-bold">
+                <div className="p-2 bg-primary/10 rounded-lg">
+                  <FileText className="h-6 w-6 text-primary" />
+                </div>
                 <span>{title}</span>
               </CardTitle>
-              <CardDescription className="text-base">
+              <CardDescription className="text-base leading-relaxed">
                 {description}
               </CardDescription>
             </div>
@@ -291,7 +346,7 @@ export function FileInfoDisplay({ files, loading, onRefresh, title, description 
               disabled={loading}
               variant="outline"
               size="sm"
-              className="flex items-center gap-2"
+              className="flex items-center gap-2 hover:bg-primary hover:text-primary-foreground transition-all duration-200 font-medium"
             >
               <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
               Refresh
@@ -300,19 +355,19 @@ export function FileInfoDisplay({ files, loading, onRefresh, title, description 
         </CardHeader>
         <CardContent className="p-6">
           {loading ? (
-            <div className="flex items-center justify-center py-12">
+            <div className="flex flex-col items-center justify-center py-16 space-y-4">
               <Spinner className="h-8 w-8" />
-              <span className="ml-2">Loading file information...</span>
+              <p className="text-muted-foreground font-medium">Loading file information...</p>
             </div>
           ) : (
-            <div className="rounded-md border">
+            <div className="rounded-lg border border-border/50 overflow-hidden">
               <Table>
-                <TableHeader>
+                <TableHeader className="bg-muted/30">
                   {table.getHeaderGroups().map((headerGroup) => (
-                    <TableRow key={headerGroup.id}>
+                    <TableRow key={headerGroup.id} className="border-b border-border/50">
                       {headerGroup.headers.map((header) => {
                         return (
-                          <TableHead key={header.id}>
+                          <TableHead key={header.id} className="h-12">
                             {header.isPlaceholder
                               ? null
                               : flexRender(
@@ -327,13 +382,16 @@ export function FileInfoDisplay({ files, loading, onRefresh, title, description 
                 </TableHeader>
                 <TableBody>
                   {table.getRowModel().rows?.length ? (
-                    table.getRowModel().rows.map((row) => (
+                    table.getRowModel().rows.map((row, index) => (
                       <TableRow
                         key={row.id}
                         data-state={row.getIsSelected() && "selected"}
+                        className={`border-b border-border/30 hover:bg-muted/30 transition-colors duration-200 ${
+                          index % 2 === 0 ? 'bg-background' : 'bg-muted/10'
+                        }`}
                       >
                         {row.getVisibleCells().map((cell) => (
-                          <TableCell key={cell.id}>
+                          <TableCell key={cell.id} className="py-4">
                             {flexRender(
                               cell.column.columnDef.cell,
                               cell.getContext()
@@ -346,9 +404,13 @@ export function FileInfoDisplay({ files, loading, onRefresh, title, description 
                     <TableRow>
                       <TableCell
                         colSpan={columns.length}
-                        className="h-24 text-center"
+                        className="h-32 text-center"
                       >
-                        No results.
+                        <div className="flex flex-col items-center space-y-2">
+                          <FileText className="h-8 w-8 text-muted-foreground" />
+                          <p className="text-muted-foreground font-medium">No file transfers found</p>
+                          <p className="text-sm text-muted-foreground">Transfer activity will appear here</p>
+                        </div>
                       </TableCell>
                     </TableRow>
                   )}

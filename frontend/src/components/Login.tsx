@@ -55,30 +55,30 @@ const Login: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-background via-background to-muted/30 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
-        <Card className="border shadow-lg">
+        <Card className="border shadow-2xl hover:shadow-3xl transition-all duration-300 backdrop-blur-sm">
           <CardHeader className="space-y-6 text-center pb-8">
-            <div className="mx-auto w-16 h-16 bg-primary rounded-2xl flex items-center justify-center shadow-lg">
+            <div className="mx-auto w-16 h-16 bg-primary rounded-2xl flex items-center justify-center shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-105">
               <Shield className="w-8 h-8 text-primary-foreground" />
             </div>
-            <div className="space-y-2">
-              <CardTitle className="text-2xl font-bold">
+            <div className="space-y-3">
+              <CardTitle className="text-3xl font-bold tracking-tight">
                 File Transfer
               </CardTitle>
-              <CardDescription className="text-base">
-                Log in to your account to continue
+              <CardDescription className="text-base leading-relaxed">
+                Sign in to your secure account to continue
               </CardDescription>
             </div>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-2">
             <form onSubmit={handleLogin} className="space-y-6">
-              <div className="space-y-2">
-                <Label htmlFor="username" className="text-sm font-medium">
+              <div className="space-y-3">
+                <Label htmlFor="username" className="text-sm font-semibold cursor-pointer">
                   Username
                 </Label>
-                <div className="relative">
-                  <User className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <div className="relative group">
+                  <User className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors duration-200" />
                   <Input
                     type="text"
                     id="username"
@@ -86,18 +86,18 @@ const Login: React.FC = () => {
                     onChange={(e) => setUsername(e.target.value)}
                     required
                     disabled={isLoading}
-                    className="pl-10"
+                    className="pl-10 h-11"
                     placeholder="Enter your username"
                   />
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="password" className="text-sm font-medium">
+              <div className="space-y-3">
+                <Label htmlFor="password" className="text-sm font-semibold cursor-pointer">
                   Password
                 </Label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <div className="relative group">
+                  <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground group-hover:text-primary transition-colors duration-200" />
                   <Input
                     type="password"
                     id="password"
@@ -105,29 +105,27 @@ const Login: React.FC = () => {
                     onChange={(e) => setPassword(e.target.value)}
                     required
                     disabled={isLoading}
-                    className="pl-10"
+                    className="pl-10 h-11"
                     placeholder="Enter your password"
                   />
                 </div>
               </div>
 
               {error && (
-                <Alert variant="destructive">
+                <Alert variant="destructive" className="border-destructive/20 bg-destructive/5">
                   <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>{error}</AlertDescription>
+                  <AlertDescription className="font-medium">{error}</AlertDescription>
                 </Alert>
               )}
 
               <Button
                 type="submit"
                 disabled={isLoading}
-                className="w-full"
+                className="w-full h-11 text-base font-semibold"
               >
                 {isLoading ? "Signing in..." : "Sign In"}
               </Button>
             </form>
-
-            
           </CardContent>
         </Card>
       </div>
