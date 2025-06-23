@@ -71,6 +71,7 @@ const AdminUserManagement: React.FC<UserManagementProps> = ({ token }) => {
             password: newPassword,
             ip: ip || "",
           },
+          withCredentials: false
         }
       );
       toast.success("User added successfully");
@@ -111,6 +112,7 @@ const AdminUserManagement: React.FC<UserManagementProps> = ({ token }) => {
             ...(updatePassword ? { password: updatePassword } : {}),
             ...(updateIp ? { ip: updateIp } : {}),
           },
+          withCredentials: false
         }
       );
       toast.success("User updated successfully");
@@ -144,6 +146,7 @@ const AdminUserManagement: React.FC<UserManagementProps> = ({ token }) => {
             Authorization: `Bearer ${token}`,
             username: deleteUsername,
           },
+          withCredentials: false
         }
       );
       toast.success("User deleted successfully");

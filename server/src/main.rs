@@ -3,7 +3,7 @@ use crate::ftp::{
 };
 use crate::services::db::Database;
 use actix_web::web::Data;
-use actix_web::{App, HttpServer};
+use actix_web::{http, App, HttpServer};
 use actix_cors::Cors;
 use actix_web_httpauth::middleware::HttpAuthentication;
 use chrono::Utc;
@@ -453,12 +453,27 @@ async fn main() -> Result<(), Box<dyn Error>> {
         println!("[ADMIN SERVER] Starting Actix-web server at http://{}", addr);
 
         let _ = HttpServer::new(move || {
-            let cors = Cors::permissive();
+            let cors = Cors::default()
+            .allowed_origin("http://localhost:5173")
+            .allowed_origin("http://127.0.0.1:5173")
+            .allowed_methods(vec!["GET", "POST"])
+            // .allowed_headers(vec![
+            //         http::header::AUTHORIZATION,
+            //         http::header::ACCEPT,
+            //         http::header::CONTENT_TYPE,
+            //         http::header::HeaderName::from_static("username"),
+            //         http::header::HeaderName::from_static("password"),
+            //         http::header::HeaderName::from_static("ip"),
+            // ])
+            .allow_any_header()
+            .supports_credentials()
+            .max_age(3600);
+    
     
             App::new()
                 // .app_data(web::Data::new(app_state.clone()))
-                .app_data(db_data.clone())
                 .wrap(cors)
+                .app_data(db_data.clone())
                 // // .app_data(grpc_client.clone())
                 // .configure(routes::configure_routes)
                 // PUBLIC routes

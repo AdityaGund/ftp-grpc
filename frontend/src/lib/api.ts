@@ -34,6 +34,7 @@ export function uploadFile(
     headers: {
       Authorization: `Bearer ${token}`,
     },
+    withCredentials: false,
     // onUploadProgress: (e) => {
     //   if (!onProgress) return;
     //   const pct = Math.round((e.loaded / (e.total ?? 1)) * 100);

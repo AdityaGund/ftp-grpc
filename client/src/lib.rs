@@ -1,4 +1,4 @@
-use actix_web::{App, HttpServer};
+use actix_web::{http, App, HttpServer};
 use actix_web_httpauth::middleware::HttpAuthentication;
 use std::env;
 use std::io::Result;
@@ -46,13 +46,24 @@ pub async fn run_client() -> Result<()> {
     let db = web::Data::new(Arc::new(Database::init().await));
 
     HttpServer::new(move || {
-        let cors = Cors::permissive();
+        let cors = Cors::default()
+            .allowed_origin("http://localhost:5173")
+            .allowed_origin("http://127.0.0.1:5173")
+            .allowed_methods(vec!["GET", "POST"])
+            // .allowed_headers(vec![http::header::AUTHORIZATION, http::header::ACCEPT])
+            // .allowed_header(http::header::CONTENT_TYPE)
+            .allow_any_header()
+            .supports_credentials()
+            .max_age(3600);
     
         App::new()
-            .app_data(db.clone())
             .wrap(cors)
-            // .wrap(HttpAuthentication::bearer(middleware::validator))
-            .configure(routes::configure_routes)
+            .app_data(db.clone())
+            .service(
+                web::scope("")
+                    .wrap(HttpAuthentication::bearer(middleware::validator))
+                    .configure(routes::configure_routes)
+            )
     })
     .bind(&addr)?
     .run()
