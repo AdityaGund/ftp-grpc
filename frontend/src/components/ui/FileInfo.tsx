@@ -14,13 +14,15 @@ interface FileInfo {
   time_received_at: string;
 }
 
-interface AdminFileInfoProps {
+interface FileInfoDisplayProps {
   files: FileInfo[];
   loading: boolean;
   onRefresh: () => void;
+  title: string;
+  description: string;
 }
 
-export function AdminFileInfo({ files, loading, onRefresh }: AdminFileInfoProps) {
+export function FileInfoDisplay({ files, loading, onRefresh, title, description }: FileInfoDisplayProps) {
   const formatDateTime = (dateString: string) => {
     if (!dateString) return "N/A";
     try {
@@ -38,20 +40,20 @@ export function AdminFileInfo({ files, loading, onRefresh }: AdminFileInfoProps)
             <div>
               <CardTitle className="flex items-center gap-2 text-xl">
                 <FileText className="h-5 w-5 text-primary" />
-                <span>All File Transfers</span>
+                <span>{title}</span>
               </CardTitle>
               <CardDescription className="text-base">
-                View history of every file transfer recorded by the Admin server
+                {description}
               </CardDescription>
             </div>
-            <Button
-              onClick={onRefresh}
+            <Button 
+              onClick={onRefresh} 
               disabled={loading}
               variant="outline"
               size="sm"
               className="flex items-center gap-2"
             >
-              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
               Refresh
             </Button>
           </div>
@@ -66,7 +68,9 @@ export function AdminFileInfo({ files, loading, onRefresh }: AdminFileInfoProps)
             <div className="text-center py-12">
               <Archive className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
               <h3 className="text-lg font-medium text-muted-foreground mb-2">No files found</h3>
-              <p className="text-sm text-muted-foreground">No file transfer history available.</p>
+              <p className="text-sm text-muted-foreground">
+                No file transfer history available.
+              </p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -84,7 +88,7 @@ export function AdminFileInfo({ files, loading, onRefresh }: AdminFileInfoProps)
                           <p><span className="font-medium">Path:</span> {file.path}</p>
                         </div>
                       </div>
-
+                      
                       <div className="space-y-2">
                         <div className="flex items-center gap-2">
                           <Send className="h-4 w-4 text-blue-500" />
@@ -98,7 +102,7 @@ export function AdminFileInfo({ files, loading, onRefresh }: AdminFileInfoProps)
                           )}
                         </div>
                       </div>
-
+                      
                       <div className="space-y-2">
                         <div className="flex items-center gap-2">
                           <Clock className="h-4 w-4 text-green-500" />
@@ -121,4 +125,4 @@ export function AdminFileInfo({ files, loading, onRefresh }: AdminFileInfoProps)
   );
 }
 
-export default AdminFileInfo; 
+export default FileInfoDisplay;

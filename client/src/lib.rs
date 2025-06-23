@@ -1,4 +1,5 @@
 use actix_web::{App, HttpServer};
+use actix_web_httpauth::middleware::HttpAuthentication;
 use std::env;
 use std::io::Result;
 use std::sync::Arc;

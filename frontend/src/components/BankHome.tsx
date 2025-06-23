@@ -6,7 +6,8 @@ import { toast } from "sonner";
 import { fetchFileInfo } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
 import FileUpload from "./FileUpload";
-import BankFileInfo from "./BankFileInfo";
+import FileInfoDisplay from "./ui/FileInfo";
+// import BankFileInfo from "./BankFileInfo";
 
 interface FileInfo {
   _id: string | object;
@@ -41,7 +42,6 @@ export function BankHome() {
   };
 
   useEffect(() => {
-    // Load file info only once when the component first mounts
     loadFileInfo();
   }, []);
 
@@ -80,11 +80,18 @@ export function BankHome() {
 
       {activeTab === "upload" && <FileUpload />}
       {activeTab === "files" && (
-        <BankFileInfo 
+        // <BankFileInfo 
+        //   files={files}
+        //   loading={loading}
+        //   onRefresh={handleRefresh}
+        //   username={username}
+        // />
+        <FileInfoDisplay
           files={files}
           loading={loading}
           onRefresh={handleRefresh}
-          username={username}
+          title="File Transfer History"
+          description={`View all file transfers for bank: ${username}`}
         />
       )}
     </div>

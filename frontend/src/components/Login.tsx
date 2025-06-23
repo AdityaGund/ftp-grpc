@@ -21,7 +21,7 @@ const Login: React.FC = () => {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log("handleLogin function called");
+    // console.log("handleLogin function called");
     setError("");
     setIsLoading(true);
 
@@ -40,12 +40,12 @@ const Login: React.FC = () => {
       );
 
       const { token, role }: { token: string; role: string } = response.data;
-      console.log("Login response data:", response.data);
+      // console.log("Login response data:", response.data);
 
       if (!role || !["bank", "admin"].includes(role)) {
         throw new Error("Invalid role received from server");
       }
-      console.log("Login successful, token:", token, "role:", role);
+      // console.log("Login successful, token:", token, "role:", role);
       login(token, role as "bank" | "admin", username);
     } catch (err: any) {
       setError(err.response?.data?.message || "Login failed");

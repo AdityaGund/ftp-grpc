@@ -1,5 +1,7 @@
 # ftp-grpc
 
+frontend should ALWAYS run on 127.0.0.1:5173
+
 ## test
 
 - curl commands to test endpoint `/upload`
