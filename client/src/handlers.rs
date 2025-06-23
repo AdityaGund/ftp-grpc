@@ -31,6 +31,7 @@ pub async fn upload( mut payload: Multipart) -> Result<HttpResponse, AppError> {
     let mut file_name: Option<String> = None;
     let mut message: Option<String> = None;
     let mut destination: Option<String> = None;
+    let mut destination_ip: Option<String> = None;
     let mut sender: Option<String> = None;
 
     fs::create_dir_all("./temp").await?;
@@ -76,7 +77,16 @@ pub async fn upload( mut payload: Multipart) -> Result<HttpResponse, AppError> {
                     if let Ok(s) = String::from_utf8(data) {
                         destination = Some(s);
                     }
-                }
+                },
+                Some("destinationIp") => {
+                    let mut data = Vec::new();
+                    while let Some(chunk) = field.try_next().await? {
+                        data.extend_from_slice(chunk.as_ref());
+                    }
+                    if let Ok(s) = String::from_utf8(data) {
+                        destination_ip = Some(s);
+                    }
+                },
                 Some("sender") => {
                     let mut data = Vec::new();
                     while let Some(chunk) = field.try_next().await? {
@@ -111,6 +121,7 @@ pub async fn upload( mut payload: Multipart) -> Result<HttpResponse, AppError> {
                     file_details,
                     message.as_deref(),
                     destination.as_deref(),
+                    destination_ip.as_deref(),
                     sender.as_deref(),
                     // Some(state.notifier.clone()),
                 ).await;
@@ -146,6 +157,7 @@ pub async fn upload( mut payload: Multipart) -> Result<HttpResponse, AppError> {
             "file_name": &file_name,
             "sent_message": &message,
             "destination": &destination,
+            "destination_ip": &destination_ip,
             "sender": &sender,
         }))),
         Err(e) => Err(e), // will be converted to proper HTTP error by ResponseError impl

@@ -131,6 +131,7 @@ import {
   getSortedRowModel,
   type SortingState,
   useReactTable,
+  type SortingFn,
 } from "@tanstack/react-table"
 import { ArrowUpDown, FileText, RefreshCw } from "lucide-react"
 
@@ -175,6 +176,18 @@ const formatDateTime = (dateString: string) => {
   }
 };
 
+// Custom sorting function for date-time strings
+const dateTimeSortingFn: SortingFn<FileInfo> = (rowA, rowB, columnId) => {
+  const valA = rowA.getValue<string>(columnId);
+  const valB = rowB.getValue<string>(columnId);
+
+  // Treat null/empty strings as earliest dates for sorting
+  const dateA = valA ? new Date(valA).getTime() : -Infinity;
+  const dateB = valB ? new Date(valB).getTime() : -Infinity;
+
+  return dateA - dateB;
+};
+
 // Column definitions for the data table
 export const columns: ColumnDef<FileInfo>[] = [
   {
@@ -211,6 +224,7 @@ export const columns: ColumnDef<FileInfo>[] = [
   },
   {
     accessorKey: "time_sent_at",
+    sortingFn: dateTimeSortingFn,
     header: ({ column }) => (
       <Button
         variant="ghost"
@@ -224,7 +238,16 @@ export const columns: ColumnDef<FileInfo>[] = [
   },
   {
     accessorKey: "time_received_at",
-    header: "Received",
+    sortingFn: dateTimeSortingFn,
+    header: ({ column }) => (
+      <Button
+        variant="ghost"
+        onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+      >
+        Received
+        <ArrowUpDown className="ml-2 h-4 w-4" />
+      </Button>
+    ),
     cell: ({ row }) => <div>{formatDateTime(row.getValue("time_received_at"))}</div>,
   },
   {

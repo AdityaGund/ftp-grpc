@@ -18,6 +18,7 @@ export function uploadFile(
   file: File | null,
   message: string | null,
   destination: string,
+  destination_ip: string,
   sender: string | null,
   token: string | null,
   // onProgress?: (pct: number) => void,
@@ -26,6 +27,7 @@ export function uploadFile(
   if (file) form.append('file', file);
   if (message) form.append('message', message);
   form.append('destination', destination);
+  form.append('destinationIp', destination_ip);
   if (sender) form.append('sender', sender);
 
   return axios.post(`${BASE}/upload`, form, {

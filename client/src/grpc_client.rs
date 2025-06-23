@@ -26,6 +26,7 @@ pub async fn transfer_data(
     file_details: Option<(&str, &str)>, // (path, name)
     message_content: Option<&str>,
     destination: Option<&str>,
+    destination_ip: Option<&str>,
     sender: Option<&str>
     // notifier: Option<broadcast::Sender<TransferResponse>>,
 ) -> Result<(), AppError> {
@@ -174,6 +175,7 @@ pub async fn transfer_data(
             transfer_id: transfer_id.clone(),
             sender_bank_id: sender.unwrap().to_string(),
             receiver_bank_id: destination.unwrap().to_string(),
+            receiver_bank_ip: destination_ip.unwrap().to_string(),
             chunk_index: 1,
             total_chunks: 1,
             timestamp: Utc::now().format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string(),
@@ -194,6 +196,7 @@ pub async fn transfer_data(
                 transfer_id: transfer_id.clone(),
                 sender_bank_id: sender.unwrap().to_string(),
                 receiver_bank_id: destination.unwrap().to_string(),
+                receiver_bank_ip: destination_ip.unwrap().to_string(),
                 chunk_index: (idx + 1) as i32,
                 total_chunks,
                 timestamp: Utc::now().format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string(),

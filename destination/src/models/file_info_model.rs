@@ -9,6 +9,7 @@ pub struct FileInfo {
     pub path: String,
     pub sender_bank_id: String,
     pub receiver_bank_id: String,
+    pub receiver_bank_ip: String,
     pub message: String,
     pub time_sent_at: String,
     pub time_received_at: String,

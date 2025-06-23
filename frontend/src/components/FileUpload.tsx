@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { useState, useEffect, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +20,7 @@ export function FileUpload() {
   const [file, setFile] = useState<File | null>(null);
   const [message, setMessage] = useState<string>("");
   const [destination, setDestination] = useState<string>("");
+  const [selectedBank, setSelectedBank] = useState<Bank | null>(null);
   const [uploading, setUploading] = useState<boolean>(false);
   // const [progress, setProgress] = useState<number>(0);
   const [banks, setBanks] = useState<Bank[]>([]);
@@ -38,15 +40,15 @@ export function FileUpload() {
       });
   }, []);
 
-  const handleDestinationChange = (value: string) => {
-    setDestination(value);
+  const handleDestinationChange = (bank: Bank | null) => {
+    setSelectedBank(bank);
   };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
 
-    if (!destination) {
-      toast.error("Please enter a destination");
+    if (!selectedBank) {
+      toast.error("Please select a destination bank");
       return;
     }
 
@@ -56,14 +58,13 @@ export function FileUpload() {
     }
 
     setUploading(true);
-    // setProgress(0);
 
     try {
-      // setProgress(0);
       const response = await uploadFile(
         file,
         message || null,
-        destination,
+        selectedBank.username,
+        selectedBank.ip,
         username,
         token,
         // (pct) => setProgress(pct)
@@ -91,6 +92,7 @@ export function FileUpload() {
     setFile(null);
     setMessage("");
     setDestination("");
+    setSelectedBank(null)
     // setProgress(0);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
@@ -117,26 +119,24 @@ export function FileUpload() {
                 <span>Destination</span>
               </label>
               <div className="relative">
-                <Input
+                <select
                   id="destination"
-                  list="destinations"
-                  placeholder="Select or type destination IP"
-                  value={destination}
-                  onChange={(e) => handleDestinationChange(e.target.value)}
+                  value={selectedBank?.username || ""}
+                  onChange={(e) => {
+                    const bank = banks.find(b => b.username === e.target.value) || null;
+                    handleDestinationChange(bank);
+                  }}
                   disabled={uploading}
                   required
-                  className="bg-background"
-                />
-                <datalist id="destinations">
+                  className="w-full p-2 border rounded-md bg-background"
+                >
+                  <option value="" disabled>-- Select a destination --</option>
                   {banks.map((bank) => (
-                    <option
-                      key={bank.username}
-                      value={bank.ip}
-                    >
-                      {`${bank.username}`}
+                    <option key={bank.username} value={bank.username}>
+                      {bank.username} ({bank.ip})
                     </option>
                   ))}
-                </datalist>
+                </select>
               </div>
             </div>
 

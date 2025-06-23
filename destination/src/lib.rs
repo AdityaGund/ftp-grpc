@@ -90,6 +90,7 @@ impl TransferService for FileTransferService {
             const SEPARATOR: &[u8] = b"---MESSAGE_END---";
             let mut sender_bank_id = String::new();
             let mut receiver_bank_id = String::new();
+            let mut receiver_bank_ip = String::new();
             let mut time_sent_at = String::new();
             let mut file_name = String::new();
             let mut file_path = String::new();
@@ -184,6 +185,10 @@ impl TransferService for FileTransferService {
                                             Ok(abs) => abs.to_string_lossy().to_string(),
                                             Err(_) => path.clone().to_string_lossy().to_string(),
                                         };
+                                        sender_bank_id = metadata.sender_bank_id.clone();
+                                        receiver_bank_id = metadata.receiver_bank_id.clone();
+                                        receiver_bank_ip = metadata.receiver_bank_ip.clone();
+                                        time_sent_at = metadata.timestamp.clone();
                                     }
                                 }
 
@@ -251,6 +256,7 @@ impl TransferService for FileTransferService {
                 path: file_path,
                 sender_bank_id,
                 receiver_bank_id,
+                receiver_bank_ip,
                 message,
                 time_sent_at,
                 time_received_at: Utc::now().format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string(),

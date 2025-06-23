@@ -60,14 +60,15 @@ impl FileTransferService {
         message_content: Vec<u8>,
         original_metadata: ftp::Metadata,
         receiver_bank_id: &str,
+        receiver_bank_ip: &str,
     ) -> Result<impl Stream<Item = Result<TransferResponse, Status>>, Status> {
         // The client now sends the destination IP/URL directly in the header (metadata)
         // so we no longer rely on a server-side mapping table.
         // Accept either a full URL (starting with http) or a bare IP/host.
-        let destination_url = if receiver_bank_id.starts_with("http") {
-            receiver_bank_id.to_string()
+        let destination_url = if receiver_bank_ip.starts_with("http") {
+            receiver_bank_ip.to_string()
         } else {
-            format!("http://{}:50053", receiver_bank_id)
+            format!("http://{}:50053", receiver_bank_ip)
         };
 
         println!(
@@ -98,14 +99,15 @@ impl FileTransferService {
         receiver_bank_id: &str,
         // Sender used to propagate ACKs back to the original client connection. -> tx
         ack_sender: mpsc::Sender<Result<TransferResponse, Status>>,
+        receiver_bank_ip: &str,
     ) -> Result<(), Status> {
         
         let db_clone = self.db.clone();
         
-        let destination_url = if receiver_bank_id.starts_with("http") {
-            receiver_bank_id.to_string()
+        let destination_url = if receiver_bank_ip.starts_with("http") {
+            receiver_bank_ip.to_string()
         } else {
-            format!("http://{}:50053", receiver_bank_id)
+            format!("http://{}:50053", receiver_bank_ip)
         };
 
         println!(
@@ -267,6 +269,7 @@ impl TransferService for FileTransferService {
             let mut temp_file_path: Option<PathBuf> = None;
             let mut file: Option<fs::File> = None;
             let mut receiver_bank_id: Option<String> = None;
+            let mut receiver_bank_ip: Option<String> = None;
             let mut full_metadata: Option<ftp::Metadata> = None;
             let mut message_only_content: Option<Vec<u8>> = None;
 
@@ -277,6 +280,7 @@ impl TransferService for FileTransferService {
                             if let Some(metadata) = &req.metadata {
                                 full_metadata = Some(metadata.clone());
                                 receiver_bank_id = Some(metadata.receiver_bank_id.clone());
+                                receiver_bank_ip = Some(metadata.receiver_bank_ip.clone());
 
                                 if matches!(
                                     &metadata.payload_type,
@@ -363,7 +367,7 @@ impl TransferService for FileTransferService {
             if let (Some(receiver_id), Some(metadata)) = (receiver_bank_id, full_metadata) {
                 if let Some(message_content) = message_only_content {
                     match self_clone
-                        .forward_message(message_content, metadata, &receiver_id)
+                        .forward_message(message_content, metadata, &receiver_id, &receiver_bank_ip.unwrap())
                         .await
                     {
                         Ok(mut forward_stream) => {
@@ -379,7 +383,7 @@ impl TransferService for FileTransferService {
                         }
                     }
                 } else if let Some(path) = temp_file_path {
-                    match self_clone.forward_file(&path, metadata, &receiver_id, tx.clone()).await {
+                    match self_clone.forward_file(&path, metadata, &receiver_id, tx.clone(), &receiver_bank_ip.unwrap()).await {
                         Ok(_) => {
                             // No need to send response back to client as the file transfer is complete
                         }

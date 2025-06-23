@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 // src/components/Login.tsx
 "use client";
 
@@ -26,10 +27,9 @@ const Login: React.FC = () => {
     setIsLoading(true);
 
     try {
-      const serverHost = "localhost";
-      const serverPort = "50052";
+      const serverURL = import.meta.env.VITE_SERVER_API_URL ?? "http://localhost:50052"
       const response = await axios.post(
-        `http://${serverHost}:${serverPort}/login`,
+        `${serverURL}/login`,
         {},
         {
           headers: {
