@@ -90,6 +90,16 @@ export function fetchFileInfo(token: string | null) {
   });
 }
 
+/**
+ * Fetch file information from the admin/server API
+ */
+export function fetchAdminFileInfo(token: string | null) {
+  const baseUrl = import.meta.env.VITE_SERVER_API_URL ?? 'http://127.0.0.1:50052';
+  return axios.get(`${baseUrl}/api/file-info`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+}
+
 export const api = {
   uploadFile,
   fetchAvailableBanks,
@@ -97,4 +107,5 @@ export const api = {
   deleteUser,
   fetchUsers,
   fetchFileInfo,
+  fetchAdminFileInfo,
 };

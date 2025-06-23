@@ -1,11 +1,14 @@
 use std::env;
+#[derive(Clone, Debug)]
 pub struct Database{
     bank_user: Collection<Bank>,
-    admin_user: Collection<AdminUser>
+    admin_user: Collection<AdminUser>,
+    file_info: Collection<FileInfo>
 }
 use mongodb::results::{InsertOneResult, UpdateResult, DeleteResult};
 use mongodb::{Client, Collection};
 use crate::error::AppError;
+use crate::models::file_info_model::FileInfo;
 use bson::{doc};
 use futures::stream::TryStreamExt;
 
@@ -32,12 +35,14 @@ impl Database {
 
         let bank_user: Collection<Bank> = db.collection("bank");
         let admin_user: Collection<AdminUser> = db.collection("admin");
+        let file_info: Collection<FileInfo> = db.collection("fileInfo");
 
 
         println!("[ADMIN SERVER] DB Connected");
         Database{
             bank_user,
-            admin_user
+            admin_user,
+            file_info
         }
 
     }
@@ -79,6 +84,14 @@ impl Database {
             .map_err(|_| AppError::DatabaseError("Failed to insert bank_user".into()))?;
     
         Ok(result)
+    }
+
+    pub async fn store_file_info(&self, file_info: FileInfo) -> Result<InsertOneResult, AppError> {
+        self
+            .file_info
+            .insert_one(file_info)
+            .await
+            .map_err(|e| AppError::ClientError(e.to_string()))
     }
     
     pub async fn get_banks(&self) -> Result<Vec<BankSummary>, AppError> {
@@ -198,6 +211,21 @@ impl Database {
             .collect();
 
         Ok(summaries)
+    }
+
+    pub async fn get_file_info(&self) -> Result<Vec<FileInfo>, AppError> {
+        let cursor = self
+            .file_info
+            .find(doc! {})
+            .await
+            .map_err(|_| AppError::DatabaseError("Failed to query file info".into()))?;
+
+        let files: Vec<FileInfo> = cursor
+            .try_collect()
+            .await
+            .map_err(|_| AppError::DatabaseError("Failed to collect file info".into()))?;
+
+        Ok(files)
     }
 
 }

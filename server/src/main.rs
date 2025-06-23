@@ -27,6 +27,9 @@ use tokio::{
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::{Stream, StreamExt};
 use tonic::{Request, Response, Status, Streaming, transport::Server};
+use crate::models::file_info_model::FileInfo as DbFileInfo;
+use mongodb::bson::oid::ObjectId;
+use std::sync::Arc;
 
 // const MAX_RETRIES: u8 = 3;
 // const CHUNK_SIZE: usize = 1024 * 1024; // 1 MB
@@ -43,11 +46,13 @@ pub mod ftp {
 }
 
 #[derive(Debug, Clone)]
-pub struct FileTransferService;
+pub struct FileTransferService{
+    db: Arc<Database>,
+}
 
 impl FileTransferService {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new( db: Arc<Database>) -> Self {
+        Self { db }
     }
 
     async fn forward_message(
@@ -94,6 +99,9 @@ impl FileTransferService {
         // Sender used to propagate ACKs back to the original client connection. -> tx
         ack_sender: mpsc::Sender<Result<TransferResponse, Status>>,
     ) -> Result<(), Status> {
+        
+        let db_clone = self.db.clone();
+        
         let destination_url = if receiver_bank_id.starts_with("http") {
             receiver_bank_id.to_string()
         } else {
@@ -207,6 +215,28 @@ impl FileTransferService {
                     if ok_res.status == ftp::Status::Success as i32
                         || ok_res.status == ftp::Status::Failure as i32
             );
+
+            if let Ok(ok_res) = &res {
+                if ok_res.status == ftp::Status::Success as i32 {
+                    // Store metadata in DB
+                    if let Some(file_name_os) = file_path.file_name() {
+                        let db_doc = DbFileInfo {
+                            _id: ObjectId::new(),
+                            name: file_name_os.to_string_lossy().to_string(),
+                            path: match std::fs::canonicalize(file_path) {
+                                Ok(abs) => abs.to_string_lossy().to_string(),
+                                Err(_) => file_path.to_string_lossy().to_string(),
+                            },
+                            sender_bank_id: original_metadata.sender_bank_id.clone(),
+                            receiver_bank_id: original_metadata.receiver_bank_id.clone(),
+                            message: String::new(),
+                            time_sent_at: original_metadata.timestamp.clone(),
+                            time_received_at: chrono::Utc::now().format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string(),
+                        };
+                        let _ = db_clone.store_file_info(db_doc).await;
+                    }
+                }
+            }
 
             let _ = ack_sender.send(res).await;
 
@@ -392,7 +422,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         
         let addr = format!("{}:{}", host, port).parse::<SocketAddr>().expect("[GRPC ADMIN] failed to parse address");
         
-        let service = FileTransferService::new();
+        let db = Arc::new(Database::init().await);
+
+
+        let service = FileTransferService::new(db.clone());
         println!("[GRPC ADMIN] Server listening on {}", addr);
         
         Server::builder()

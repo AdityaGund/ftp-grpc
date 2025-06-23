@@ -9,6 +9,7 @@ import { UserPlus, Key, Globe, Info } from "lucide-react";
 import axios from "axios";
 import { useAuth } from "@/lib/AuthContext";
 import { api } from "@/lib/api";
+import { AdminFileInfo } from "./AdminFileInfo";
 
 
 const AdminHome: React.FC = () => {
@@ -36,6 +37,21 @@ const AdminHome: React.FC = () => {
   // Track currently selected user type & existing ip (for bank)
   const [selectedUserIp, setSelectedUserIp] = useState<string>("");
 
+  // File info structure same as Bank side
+  interface FileInfo {
+    _id: string | object;
+    name: string;
+    path: string;
+    sender_bank_id: string;
+    receiver_bank_id: string;
+    message: string;
+    time_sent_at: string;
+    time_received_at: string;
+  }
+
+  const [files, setFiles] = useState<FileInfo[]>([]);
+  const [loadingFiles, setLoadingFiles] = useState<boolean>(false);
+
   const token = localStorage.getItem("jwt");
 
   // fetch users list
@@ -52,6 +68,31 @@ const AdminHome: React.FC = () => {
     };
     fetch();
   }, [token, submitting, updating, deleting]);
+
+  // Fetch file information from admin server
+  const loadFileInfo = async () => {
+    setLoadingFiles(true);
+    try {
+      const response = await api.fetchAdminFileInfo(token);
+      setFiles(response.data.data || []);
+    } catch (error) {
+      console.error("Error fetching admin file info", error);
+      toast.error("Failed to load file history");
+    } finally {
+      setLoadingFiles(false);
+    }
+  };
+
+  // Fetch once on mount
+  useEffect(() => {
+    loadFileInfo();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleRefreshFiles = () => {
+    toast.success("Refreshing file information...");
+    loadFileInfo();
+  };
 
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -391,6 +432,11 @@ const AdminHome: React.FC = () => {
           </form>
         </CardContent>
       </Card>
+
+      {/* FILE HISTORY */}
+      <div className="mt-8">
+        <AdminFileInfo files={files} loading={loadingFiles} onRefresh={handleRefreshFiles} />
+      </div>
     </div>
   );
 };

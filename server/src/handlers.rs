@@ -232,3 +232,12 @@ pub async fn list_users(db: web::Data<Database>) -> Result<HttpResponse, AppErro
         "admins": admins,
     })))
 }
+
+#[get("/file-info")]
+pub async fn fetch_file_info(db: web::Data<Database>) -> Result<HttpResponse, AppError> {
+    let files = db.get_file_info().await?;
+
+    Ok(HttpResponse::Ok().json(json!({
+        "data": files
+    })))
+}
