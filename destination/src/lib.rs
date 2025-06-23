@@ -136,19 +136,29 @@ impl TransferService for FileTransferService {
 
                         // after first chunk
                         if let Some(metadata) = &req.metadata {
+                            // Extract common metadata fields for ALL payload types
+                            if transfer_id.is_empty() {
+                                transfer_id = metadata.transfer_id.clone();
+                            }
+                            
+                            // Extract common fields that should be available for all payload types
+                            if sender_bank_id.is_empty() {
+                                sender_bank_id = metadata.sender_bank_id.clone();
+                            }
+                            if receiver_bank_id.is_empty() {
+                                receiver_bank_id = metadata.receiver_bank_id.clone();
+                            }
+                            if time_sent_at.is_empty() {
+                                time_sent_at = metadata.timestamp.clone();
+                            }
 
-                            // only check for files
+                            // only check for files (file-specific logic)
                             if !matches!(
                                 &metadata.payload_type,
                                 Some(ftp::metadata::PayloadType::MessageInfo(_))
                             ) {
-                                if transfer_id.is_empty() {
-                                    transfer_id = metadata.transfer_id.clone();
-                                }
-
                                 // write file on disk (for first chunk)
                                 if file.is_none() {
-
                                     // file name
                                     let file_info = match &metadata.payload_type {
                                         Some(ftp::metadata::PayloadType::FileInfo(info)) => {
@@ -160,24 +170,20 @@ impl TransferService for FileTransferService {
                                         _ => None,
                                     };
 
-                                    // create directory
+                                    // create directory and file handling code...
                                     if let Some(fi) = file_info {
                                         let storage_dir = "destination_files";
                                         let _ = fs::create_dir_all(storage_dir).await;
-                                        let path =
-                                            Path::new(storage_dir).join(format!("{}", &fi.name));
+                                        let path = Path::new(storage_dir).join(format!("{}", &fi.name));
                                         temp_file_path = Some(path.clone());
                                         file = Some(fs::File::create(path.clone()).await.unwrap());
 
-                                        // store metadata details
+                                        // store file-specific metadata details
                                         file_name = fi.name.clone();
                                         file_path = match std::fs::canonicalize(&path) {
                                             Ok(abs) => abs.to_string_lossy().to_string(),
                                             Err(_) => path.clone().to_string_lossy().to_string(),
                                         };
-                                        sender_bank_id = metadata.sender_bank_id.clone();
-                                        receiver_bank_id = metadata.receiver_bank_id.clone();
-                                        time_sent_at = metadata.timestamp.clone();
                                     }
                                 }
 

@@ -46,11 +46,7 @@ pub async fn run_client() -> Result<()> {
     let db = web::Data::new(Arc::new(Database::init().await));
 
     HttpServer::new(move || {
-        let cors = Cors::default()
-            .allowed_origin("http://localhost:5173")
-            .allowed_methods(vec!["GET", "POST", "PUT", "DELETE", "OPTIONS"])
-            .allow_any_header()
-            .max_age(3600);
+        let cors = Cors::permissive();
     
         App::new()
             .app_data(db.clone())
