@@ -25,7 +25,7 @@ export function FileUpload() {
   // const [progress, setProgress] = useState<number>(0);
   const [banks, setBanks] = useState<Bank[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { username } = useAuth();
+  const { username, user } = useAuth();
   const token = localStorage.getItem("jwt");
 
   useEffect(() => {
@@ -67,6 +67,7 @@ export function FileUpload() {
         selectedBank.ip,
         username,
         token,
+        user?.role === 'admin' ? 'admin' : 'bank',
         // (pct) => setProgress(pct)
       );
 

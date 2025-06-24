@@ -40,6 +40,7 @@ pub mod error;
 pub mod models;
 pub mod services;
 pub mod middleware;
+pub mod grpc_client;
 
 pub mod ftp {
     tonic::include_proto!("ftp");

@@ -21,6 +21,7 @@ export function uploadFile(
   destination_ip: string,
   sender: string | null,
   token: string | null,
+  role: "bank" | "admin" = "bank",
   // onProgress?: (pct: number) => void,
 ) {
   const form = new FormData();
@@ -30,7 +31,18 @@ export function uploadFile(
   form.append('destinationIp', destination_ip);
   if (sender) form.append('sender', sender);
 
-  return axios.post(`${BASE}/upload`, form, {
+  // determine endpoint
+  const isAdmin = role === 'admin';
+
+  const url = isAdmin
+    ? (
+        (
+          import.meta.env.VITE_SERVER_API_URL ?? 'http://127.0.0.1:50052'
+        ) + '/api/admin-upload'
+      )
+    : `${BASE}/upload`;
+
+  return axios.post(url, form, {
     headers: {
       Authorization: `Bearer ${token}`,
     },

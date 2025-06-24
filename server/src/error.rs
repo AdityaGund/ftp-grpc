@@ -42,3 +42,9 @@ impl From<tonic::Status> for AppError {
         AppError::TonicStatus(err)
     }
 }
+
+impl From<actix_multipart::MultipartError> for AppError {
+    fn from(err: actix_multipart::MultipartError) -> Self {
+        AppError::ClientError(format!("Multipart error: {}", err))
+    }
+}
