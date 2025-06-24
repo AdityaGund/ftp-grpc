@@ -228,4 +228,19 @@ impl Database {
         Ok(files)
     }
 
+    pub async fn get_file_info_by_receiver(&self, receiver_bank_id: &str) -> Result<Vec<FileInfo>, AppError> {
+        let cursor = self
+            .file_info
+            .find(doc! { "receiver_bank_id": receiver_bank_id })
+            .await
+            .map_err(|_| AppError::DatabaseError("Failed to query file info".into()))?;
+
+        let files: Vec<FileInfo> = cursor
+            .try_collect()
+            .await
+            .map_err(|_| AppError::DatabaseError("Failed to collect file info".into()))?;
+
+        Ok(files)
+    }
+
 }

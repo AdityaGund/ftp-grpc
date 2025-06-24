@@ -23,10 +23,14 @@ use crate::grpc_client::{self, ftp::transfer_service_client::TransferServiceClie
 use crate::services::db::Database;
 use serde_json;
 use actix_web::{post, get};
+use std::sync::Arc;
+use mongodb::bson::oid::ObjectId;
+use chrono::Utc;
+use crate::models::file_info_model::FileInfo as DbFileInfo;
 
 // pub async fn upload(state: web::Data<AppState>, mut payload: Multipart) -> Result<HttpResponse, AppError> {
 #[post("/upload")]
-pub async fn upload( mut payload: Multipart) -> Result<HttpResponse, AppError> {
+pub async fn upload(mut payload: Multipart, db: web::Data<Arc<Database>>) -> Result<HttpResponse, AppError> {
     let mut file_path: Option<String> = None;
     let mut file_name: Option<String> = None;
     let mut message: Option<String> = None;
@@ -152,19 +156,35 @@ pub async fn upload( mut payload: Multipart) -> Result<HttpResponse, AppError> {
 
     // Decide which HTTP response to send
     match transfer_result {
-        Ok(_) => Ok(HttpResponse::Ok().json(serde_json::json!({
-            "message": "Data transfer success.",
-            "file_name": &file_name,
-            "sent_message": &message,
-            "destination": &destination,
-            "destination_ip": &destination_ip,
-            "sender": &sender,
-        }))),
+        Ok(_) => {
+            // Persist metadata about the sent payload
+            let db_doc = DbFileInfo {
+                _id: ObjectId::new(),
+                name: file_name.clone().unwrap_or_default(),
+                path: file_path.clone().unwrap_or_default(),
+                sender_bank_id: sender.clone().unwrap_or_default(),
+                receiver_bank_id: destination.clone().unwrap_or_default(),
+                message: message.clone().unwrap_or_default(),
+                time_sent_at: Utc::now().format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string(),
+                time_received_at: String::new(),
+            };
+
+            let _ = db.store_file_info(db_doc).await;
+
+            Ok(HttpResponse::Ok().json(serde_json::json!({
+                "message": "Data transfer success.",
+                "file_name": &file_name,
+                "sent_message": &message,
+                "destination": &destination,
+                "destination_ip": &destination_ip,
+                "sender": &sender,
+            })))
+        },
         Err(e) => Err(e), // will be converted to proper HTTP error by ResponseError impl
     }
 }
 
-#[get("/file-info")]
+#[get("/file-info/sent")]
 pub async fn fetch_info(db: web::Data<std::sync::Arc<Database>>) -> Result<HttpResponse, AppError> {
     // Fetch all file information from the database
     let files = db.get_file_info().await?;

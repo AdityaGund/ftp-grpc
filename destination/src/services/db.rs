@@ -31,7 +31,7 @@ impl Database {
 
         let db = client.database("client_db");
 
-        let file_info: Collection<FileInfo> = db.collection("fileInfo");
+        let file_info: Collection<FileInfo> = db.collection("fileInfoRecv");
 
 
         println!("[DESTINATION SERVER] DB Connected");

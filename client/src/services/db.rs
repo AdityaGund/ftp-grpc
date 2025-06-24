@@ -9,6 +9,7 @@ use std::path::Path;
 use dotenv::dotenv;
 use futures::stream::TryStreamExt;
 use crate::error::AppError;
+use mongodb::results::InsertOneResult;
 
 
 #[derive(Debug, serde::Serialize)]
@@ -32,7 +33,7 @@ impl Database {
 
         let db = client.database("client_db");
 
-        let file_info: Collection<FileInfo> = db.collection("fileInfo");
+        let file_info: Collection<FileInfo> = db.collection("fileInfoSent");
 
 
         println!("[CLIENT SERVER] DB Connected");
@@ -54,5 +55,13 @@ impl Database {
             .map_err(|_| AppError::DatabaseError("Failed to collect file info".into()))?;
 
         Ok(files)
+    }
+
+    pub async fn store_file_info(&self, file_info: FileInfo) -> Result<InsertOneResult, AppError> {
+        self
+            .file_info
+            .insert_one(file_info)
+            .await
+            .map_err(|e| AppError::ClientError(e.to_string()))
     }
 }
