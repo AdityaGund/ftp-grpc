@@ -1,7 +1,6 @@
 # ftp-grpc
 
 frontend should ALWAYS run on 127.0.0.1:5173
-destination GRPC should ALWAYS run on port 50053
 
 ## test
 
