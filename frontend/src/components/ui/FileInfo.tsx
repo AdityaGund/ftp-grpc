@@ -331,12 +331,12 @@ export function FileInfoDisplay({ files, loading, onRefresh, title, description 
         <CardHeader className="border-b border-border/50 pb-6">
           <div className="flex items-center justify-between">
             <div className="space-y-2">
-              <CardTitle className="flex items-center gap-3 text-2xl font-bold">
+              {/* <CardTitle className="flex items-center gap-3 text-2xl font-bold">
                 <div className="p-2 bg-primary/10 rounded-lg">
                   <FileText className="h-6 w-6 text-primary" />
                 </div>
                 <span>{title}</span>
-              </CardTitle>
+              </CardTitle> */}
               <CardDescription className="text-base leading-relaxed">
                 {description}
               </CardDescription>
