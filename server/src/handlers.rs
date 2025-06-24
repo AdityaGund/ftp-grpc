@@ -241,25 +241,3 @@ pub async fn fetch_file_info(db: web::Data<Database>) -> Result<HttpResponse, Ap
         "data": files
     })))
 }
-
-#[get("/file-info/received")]
-pub async fn fetch_received_file_info(req: HttpRequest, db: web::Data<Database>) -> Result<HttpResponse, AppError> {
-    // Bank users only
-    let claims_opt = req.extensions().get::<crate::services::auth::Claims>().cloned();
-
-    let Some(claims) = claims_opt else {
-        return Err(AppError::ClientError("Unauthorized".into()));
-    };
-
-    if claims.role != "bank" {
-        return Err(AppError::ClientError("Only bank users can access received files".into()));
-    }
-
-    let username = claims.sub; // subject is username
-
-    let files = db.get_file_info_by_receiver(&username).await?;
-
-    Ok(HttpResponse::Ok().json(json!({
-        "data": files
-    })))
-}

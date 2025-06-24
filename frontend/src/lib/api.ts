@@ -85,20 +85,10 @@ export function fetchUsers(token: string | null) {
 }
 
 /**
- * Fetch file information (sent) from the client API
+ * Fetch file information from the client API
  */
-export function fetchFileInfoSent(token: string | null) {
-  return axios.get(`${BASE}/file-info/sent`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-}
-
-/**
- * Fetch received file information from the server API (filtered for the authenticated bank)
- */
-export function fetchFileInfoReceived(token: string | null) {
-  const baseUrl = import.meta.env.VITE_SERVER_API_URL ?? 'http://127.0.0.1:50052';
-  return axios.get(`${baseUrl}/api/file-info/received`, {
+export function fetchFileInfo(token: string | null) {
+  return axios.get(`${BASE}/file-info`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
 }
@@ -119,7 +109,6 @@ export const api = {
   updateUser,
   deleteUser,
   fetchUsers,
-  fetchFileInfoSent,
-  fetchFileInfoReceived,
+  fetchFileInfo,
   fetchAdminFileInfo,
 };

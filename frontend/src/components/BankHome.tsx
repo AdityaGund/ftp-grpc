@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
-import { Upload, FileText, Send, Download } from "lucide-react";
+import { Upload, FileText } from "lucide-react";
 import { toast } from "sonner";
-import { fetchFileInfoSent, fetchFileInfoReceived } from "@/lib/api";
+import { fetchFileInfo } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
 import FileUpload from "./FileUpload";
 import FileInfoDisplay from "./ui/FileInfo";
@@ -19,84 +19,33 @@ interface FileInfo {
 }
 
 export function BankHome() {
-  const [sentFiles, setSentFiles] = useState<FileInfo[]>([]);
-  const [recvFiles, setRecvFiles] = useState<FileInfo[]>([]);
-  const [loadingSent, setLoadingSent] = useState<boolean>(false);
-  const [loadingRecv, setLoadingRecv] = useState<boolean>(false);
+  const [files, setFiles] = useState<FileInfo[]>([]);
+  const [loading, setLoading] = useState<boolean>(false);
   const { username } = useAuth();
   const token = localStorage.getItem("jwt");
 
-  const loadSent = async () => {
-    setLoadingSent(true);
+  const loadFileInfo = async () => {
+    setLoading(true);
     try {
-      const response = await fetchFileInfoSent(token);
-      setSentFiles(response.data.data || []);
+      const response = await fetchFileInfo(token);
+      console.log("File info response:", response.data);
+      setFiles(response.data.data || []);
     } catch (error) {
-      console.error("Error fetching sent file info:", error);
-      toast.error("Failed to load sent file information");
+      console.error("Error fetching file info:", error);
+      toast.error("Failed to load file information");
     } finally {
-      setLoadingSent(false);
-    }
-  };
-
-  const loadReceived = async () => {
-    setLoadingRecv(true);
-    try {
-      const response = await fetchFileInfoReceived(token);
-      setRecvFiles(response.data.data || []);
-    } catch (error) {
-      console.error("Error fetching received file info:", error);
-      toast.error("Failed to load received file information");
-    } finally {
-      setLoadingRecv(false);
+      setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadSent();
-    loadReceived();
+    loadFileInfo();
   }, []);
 
-  const handleRefreshSent = () => {
-    toast.success("Refreshing sent files...");
-    loadSent();
+  const handleRefresh = () => {
+    toast.success("Refreshing file information...");
+    loadFileInfo();
   };
-
-  const handleRefreshRecv = () => {
-    toast.success("Refreshing received files...");
-    loadReceived();
-  };
-
-  const historyTabs = [
-    {
-      id: "sent",
-      label: "Sent",
-      icon: Send,
-      content: (
-        <FileInfoDisplay
-          files={sentFiles}
-          loading={loadingSent}
-          onRefresh={handleRefreshSent}
-          title="Sent Files"
-          description={`Files sent by bank: ${username}`}
-        />
-      )
-    },
-    {
-      id: "received",
-      label: "Received",
-      icon: Download,
-      content: (
-        <FileInfoDisplay
-          files={recvFiles}
-          loading={loadingRecv}
-          onRefresh={handleRefreshRecv}
-          title="Received Files"
-          description={`Files received by bank: ${username}`}
-        />
-      )
-    }
-  ];
 
   const tabs = [
     {
@@ -110,7 +59,13 @@ export function BankHome() {
       label: "File History",
       icon: FileText,
       content: (
-        <TabContainer tabs={historyTabs} defaultTab="sent" />
+        <FileInfoDisplay
+          files={files}
+          loading={loading}
+          onRefresh={handleRefresh}
+          title="File Transfer History"
+          description={`Complete file transfer records for bank: ${username}`}
+        />
       )
     }
   ];
