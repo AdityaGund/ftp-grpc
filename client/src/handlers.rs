@@ -107,7 +107,7 @@ pub async fn upload(
     }
 
     // Perform transfer and build response depending on the outcome
-    let transfer_result: Result<(), AppError>;
+    let transfer_result: Result<String, AppError>;
 
     // connect to B server
     // task::spawn(async move {
@@ -157,7 +157,7 @@ pub async fn upload(
 
     // Decide which HTTP response to send
     match transfer_result {
-        Ok(_) => {
+        Ok(time_received) => {
             // Persist metadata
             let now = Utc::now().format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string();
             let doc = crate::models::file_info_model::FileInfo {
@@ -168,7 +168,7 @@ pub async fn upload(
                 receiver_bank_id: destination.clone().unwrap_or_default(),
                 message: message.clone().unwrap_or_default(),
                 time_sent_at: now.clone(),
-                time_received_at: String::new(),
+                time_received_at: time_received.clone(),
             };
             let _ = db.store_file_info(doc).await;
 

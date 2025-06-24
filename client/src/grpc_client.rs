@@ -29,7 +29,7 @@ pub async fn transfer_data(
     destination_ip: Option<&str>,
     sender: Option<&str>
     // notifier: Option<broadcast::Sender<TransferResponse>>,
-) -> Result<(), AppError> {
+) -> Result<String, AppError> {
 
     // can't do much without a file or a message
     if file_details.is_none() && message_content.is_none() {
@@ -240,6 +240,8 @@ pub async fn transfer_data(
     /*
         THIS WILL HANDLE ALL  RESPONSES FROM THE SERVER NOW ..
      */
+    let mut time_received_at = String::new();
+
     while let Some(res) = response_stream.next().await {
         match res {
             Ok(resp) => {
@@ -257,6 +259,7 @@ pub async fn transfer_data(
                     }
                     Ok(ftp::Status::Success) => {
                         println!("[CLIENT] Transfer completed successfully.");
+                        time_received_at = resp.time_received_at.clone();
                         break;
                     }
                     Ok(ftp::Status::Failure) => {
@@ -314,5 +317,5 @@ pub async fn transfer_data(
     }
     
 
-    Ok(())
+    Ok(time_received_at)
 }

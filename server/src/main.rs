@@ -234,7 +234,11 @@ impl FileTransferService {
                             receiver_bank_id: original_metadata.receiver_bank_id.clone(),
                             message: String::new(),
                             time_sent_at: original_metadata.timestamp.clone(),
-                            time_received_at: chrono::Utc::now().format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string(),
+                            time_received_at: if !ok_res.time_received_at.is_empty() {
+                                ok_res.time_received_at.clone()
+                            } else {
+                                chrono::Utc::now().format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string()
+                            },
                         };
                         let _ = db_clone.store_file_info(db_doc).await;
                     }
@@ -337,6 +341,7 @@ impl TransferService for FileTransferService {
                                         .as_ref()
                                         .map_or_else(String::new, |m| m.transfer_id.clone()),
                                     status: ftp::Status::InProgress as i32,
+                                    time_received_at: String::new(),
                                     error_info: Some(ErrorInfo {
                                         error_code: "SERVER".to_string(),
                                         error_details: String::new(),
