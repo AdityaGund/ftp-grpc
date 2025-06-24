@@ -1,0 +1,11 @@
+[package]
+name = "runner"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+client = { path = "../client" }
+destination = { path = "../destination" }
+tokio = { version = "1", features = ["full"] }
+actix-web = "4.11.0" 
+watch = "0.2.3"

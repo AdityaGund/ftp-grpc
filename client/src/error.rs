@@ -7,6 +7,7 @@ pub enum AppError {
     IoError(std::io::Error),
     TonicStatus(tonic::Status),
     ClientError(String),
+    DatabaseError(String),
 }
 
 impl fmt::Display for AppError {
@@ -16,6 +17,7 @@ impl fmt::Display for AppError {
             AppError::IoError(e) => write!(f, "IO error: {}", e),
             AppError::TonicStatus(e) => write!(f, "gRPC error: {}", e),
             AppError::ClientError(e) => write!(f, "Client error: {}", e),
+            AppError::DatabaseError(e) => write!(f, "Database error: {}", e),
         }
     }
 }
@@ -27,6 +29,7 @@ impl ResponseError for AppError {
             AppError::IoError(_) => HttpResponse::InternalServerError().json("Internal server error"),
             AppError::TonicStatus(_) => HttpResponse::InternalServerError().json("File transfer service unavailable"),
             AppError::ClientError(msg) => HttpResponse::BadRequest().json(msg),
+            AppError::DatabaseError(msg) => HttpResponse::InternalServerError().json(msg),
         }
     }
 }
