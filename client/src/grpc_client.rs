@@ -18,7 +18,7 @@ pub use ftp::{
     Metadata, TransferRequest, TransferResponse,
 };
 
-const CHUNK_SIZE: usize = 1024 * 1024; // 1 MB
+const CHUNK_SIZE: usize = (1024 * 1024) * 5; // 1 MB
 const MAX_RETRIES: u8 = 3;
 
 pub async fn transfer_data(

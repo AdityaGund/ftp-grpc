@@ -128,7 +128,7 @@ impl FileTransferService {
                 tonic::Status::internal(format!("Failed to connect to destination: {}", e))
             })?;
 
-        const CHUNK_SIZE: usize = 1024 * 1024; // 1MB
+        const CHUNK_SIZE: usize = (1024 * 1024) * 5; // 1MB
         const MAX_RETRIES: u8 = 3;
 
         let mut file = fs::File::open(file_path).await.map_err(|e| {
@@ -445,7 +445,7 @@ impl TransferService for FileTransferService {
                     let msg_for_file = attachment_message.or(message_only_content.clone());
 
                     match self_clone.forward_file(&path, metadata, &receiver_id, tx.clone(), &receiver_bank_ip.unwrap(), msg_for_file).await {
-                        Ok(_) => {
+                           Ok(_) => {
                             // No need to send response back to client as the file transfer is complete
                         }
                         Err(e) => {

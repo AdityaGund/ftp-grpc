@@ -11,7 +11,7 @@ use crate::ftp as ftp;
 pub use crate::ftp::transfer_service_client::TransferServiceClient;
 use crate::ftp::{AttachmentInfo, FileInfo, MessageInfo, Metadata, TransferRequest, TransferResponse};
 
-const CHUNK_SIZE: usize = 1024 * 1024; // 1 MB
+const CHUNK_SIZE: usize = (1024 * 1024) * 5; // 1 MB
 const MAX_RETRIES: u8 = 3;
 
 pub async fn transfer_data(
@@ -67,7 +67,7 @@ pub async fn transfer_data(
         _ => None,
     };
 
-    // Split file into chunks
+    // Split the file into chunks =================================================
     let mut file_chunks: Vec<Vec<u8>> = Vec::new();
     let mut total_chunks = 0;
     if let Some((file_path, _)) = file_details {
@@ -75,6 +75,7 @@ pub async fn transfer_data(
         let file_size = file.metadata().await?.len();
         total_chunks = (file_size as f64 / CHUNK_SIZE as f64).ceil() as i32;
 
+        let mut i = 1;
         loop {
             let mut buffer = vec![0; CHUNK_SIZE];
             let n = file.read(&mut buffer).await?;
@@ -83,6 +84,8 @@ pub async fn transfer_data(
             }
             buffer.truncate(n);
             file_chunks.push(buffer);
+            println!("[CLIENT] created chunk {i}");
+            i += 1;
         }
     }
 
@@ -118,7 +121,9 @@ pub async fn transfer_data(
         for attempt in 1..=MAX_RETRIES {
             req_tx.send(req.clone()).await.map_err(|e| AppError::ClientError(format!("Failed to send request: {e}")))?;
             match responses.next().await {
-                Some(Ok(_ack)) => {
+                Some(Ok(ack)) => {
+                    let origin = ack.error_info.as_ref().map(|e| e.error_code.as_str()).unwrap_or("UNKNOWN");
+                    println!("[ADMIN GRPC] ACK received from {}. status: {} (chunk {} )", origin, ack.status, ack.transfer_id);
                     return Ok(());
                 }
                 Some(Err(e)) => {
@@ -163,6 +168,7 @@ pub async fn transfer_data(
                 timestamp: Utc::now().format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string(),
                 payload_type: payload_type.clone(),
             };
+            println!("[ADMIN GRPC] Sending chunk {}/{}", idx + 1, total_chunks);
             let req = TransferRequest { metadata: Some(meta), content: chunk.clone() };
             send_with_retry(&mut req_tx, req, &mut response_stream).await?;
         }
@@ -173,6 +179,7 @@ pub async fn transfer_data(
         match res {
             Ok(resp) => {
                 if resp.status == ftp::Status::Success as i32 {
+                    println!("[ADMIN GRPC] Transfer completed successfully.");
                     // Success – return the destination timestamp (or now if empty)
                     let recv_ts = if !resp.time_received_at.is_empty() {
                         resp.time_received_at.clone()
