@@ -214,6 +214,7 @@ impl TransferService for FileTransferService {
                                 .as_ref()
                                 .map_or_else(String::new, |m| m.transfer_id.clone()),
                             status: ftp::Status::InProgress as i32,
+                            time_received_at: String::new(),
                             error_info: Some(ErrorInfo {
                                 error_code: "DESTINATION".to_string(),
                                 error_details: req.metadata.as_ref().map(|m| format!("{}/{}", m.chunk_index, m.total_chunks)).unwrap_or_default(),
@@ -244,6 +245,7 @@ impl TransferService for FileTransferService {
             let response = TransferResponse {
                 transfer_id,
                 status: ftp::Status::Success as i32,
+                time_received_at: Utc::now().format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string(),
                 error_info: Some(ErrorInfo {
                     error_code: "DESTINATION".to_string(),
                     error_details: "DONE".to_string(),

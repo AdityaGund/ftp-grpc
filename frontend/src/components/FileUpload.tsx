@@ -162,17 +162,6 @@ export function FileUpload() {
   return (
     <div className="w-full max-w-3xl mx-auto">
       <Card className="border shadow-lg hover:shadow-xl transition-all duration-300">
-        <CardHeader className="border-b border-border/50 pb-6">
-          <CardTitle className="flex items-center gap-3 text-2xl font-bold">
-            <div className="p-2 bg-primary/10 rounded-lg">
-              <Upload className="h-6 w-6 text-primary" />
-            </div>
-            <span>Secure File Transfer</span>
-          </CardTitle>
-          <CardDescription className="text-base leading-relaxed">
-            Transfer files or messages securely via encrypted gRPC connection
-          </CardDescription>
-        </CardHeader>
         <CardContent className="p-8">
           <form onSubmit={handleSubmit} className="space-y-8">
             <div className="space-y-4">

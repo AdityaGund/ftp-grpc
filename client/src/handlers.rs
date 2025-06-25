@@ -25,10 +25,15 @@ use serde_json;
 use actix_web::{post, get};
 use futures::future::join_all; //for parallel processing of multiple file transfers
 
+use mongodb::bson::oid::ObjectId;
+use chrono::Utc;
 
 // pub async fn upload(state: web::Data<AppState>, mut payload: Multipart) -> Result<HttpResponse, AppError> {
 #[post("/upload")]
-pub async fn upload( mut payload: Multipart) -> Result<HttpResponse, AppError> {
+pub async fn upload(
+    mut payload: Multipart,
+    db: web::Data<std::sync::Arc<Database>>,
+) -> Result<HttpResponse, AppError> {
     let mut file_path: Option<String> = None;
     let mut file_name: Option<String> = None;
     let mut message: Option<String> = None;
@@ -171,7 +176,7 @@ pub async fn upload( mut payload: Multipart) -> Result<HttpResponse, AppError> {
 
     //-----------ABOVE IS NEW CODE FOR FILE UPLOAD HANDLING----------------
     // Perform transfer and build response depending on the outcome
-    // let transfer_result: Result<(), AppError>;
+    let transfer_result: Result<String, AppError>;
 
     // connect to B server
     // task::spawn(async move {
@@ -222,17 +227,33 @@ pub async fn upload( mut payload: Multipart) -> Result<HttpResponse, AppError> {
     // });
 
     // Decide which HTTP response to send
-    // match transfer_result {
-    //     Ok(_) => Ok(HttpResponse::Ok().json(serde_json::json!({
-    //         "message": "Data transfer success.",
-    //         "file_name": &file_name,
-    //         "sent_message": &message,
-    //         "destination": &destination,
-    //         "destination_ip": &destination_ip,
-    //         "sender": &sender,
-    //     }))),
-    //     Err(e) => Err(e), // will be converted to proper HTTP error by ResponseError impl
-    // }
+    match transfer_result {
+        Ok(time_received) => {
+            // Persist metadata
+            let now = Utc::now().format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string();
+            let doc = crate::models::file_info_model::FileInfo {
+                _id: ObjectId::new(),
+                name: file_name.clone().unwrap_or_default(),
+                path: file_path.clone().unwrap_or_default(),
+                sender_bank_id: sender.clone().unwrap_or_default(),
+                receiver_bank_id: destination.clone().unwrap_or_default(),
+                message: message.clone().unwrap_or_default(),
+                time_sent_at: now.clone(),
+                time_received_at: time_received.clone(),
+            };
+            let _ = db.store_file_info(doc).await;
+
+            Ok(HttpResponse::Ok().json(serde_json::json!({
+                "message": "Data transfer success.",
+                "file_name": &file_name,
+                "sent_message": &message,
+                "destination": &destination,
+                "destination_ip": &destination_ip,
+                "sender": &sender,
+            })))
+        },
+        Err(e) => Err(e), // will be converted to proper HTTP error by ResponseError impl
+    }
 }
 
 #[get("/file-info")]

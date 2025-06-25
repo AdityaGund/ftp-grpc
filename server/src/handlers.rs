@@ -13,6 +13,8 @@ use actix_multipart::Multipart;
 use futures_util::TryStreamExt;
 use tokio::fs::{self, File};
 use tokio::io::AsyncWriteExt;
+use crate::models::file_info_model::FileInfo;
+use chrono::Utc;
 
 #[post("/login")]
 pub async fn login(req: HttpRequest, db: web::Data<Database>) -> Result<HttpResponse, AppError> {
@@ -247,7 +249,10 @@ pub async fn fetch_file_info(db: web::Data<Database>) -> Result<HttpResponse, Ap
 }
 
 #[post("/admin-upload")]
-pub async fn admin_upload(mut payload: Multipart) -> Result<HttpResponse, AppError> {
+pub async fn admin_upload(
+    mut payload: Multipart,
+    db: web::Data<crate::services::db::Database>,
+) -> Result<HttpResponse, AppError> {
     // Similar to client upload handler but operates from admin server context
     let mut file_path: Option<String> = None;
     let mut file_name: Option<String> = None;
@@ -313,18 +318,20 @@ pub async fn admin_upload(mut payload: Multipart) -> Result<HttpResponse, AppErr
         }
     }
 
-    // Perform gRPC transfer
-    let host = std::env::var("SERVER_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
-    let port = std::env::var("SERVER_PORT").unwrap_or_else(|_| "50052".to_string());
-    let url = format!("http://{}:{}", host, port);
+    // Build gRPC URL for destination bank directly
+    let dest_ip = destination_ip.as_deref().ok_or_else(|| AppError::ClientError("destination IP missing".into()))?;
+    let url = if dest_ip.starts_with("http") { dest_ip.to_string() } else { format!("http://{}:50053", dest_ip) };
 
-    let mut client = match crate::grpc_client::TransferServiceClient::connect(url).await {
+    let mut client = match crate::grpc_client::TransferServiceClient::connect(url.clone()).await {
         Ok(c) => c,
         Err(e) => {
             eprintln!("[ADMIN] Failed to connect to gRPC server: {}", e);
             return Err(AppError::ClientError("gRPC connection failed".into()));
         }
     };
+
+    // Capture the time the admin initiated the transfer
+    let time_sent_at = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string();
 
     let transfer_res = crate::grpc_client::transfer_data(
         &mut client,
@@ -336,14 +343,31 @@ pub async fn admin_upload(mut payload: Multipart) -> Result<HttpResponse, AppErr
     ).await;
 
     match transfer_res {
-        Ok(_) => Ok(HttpResponse::Ok().json(serde_json::json!({
-            "message": "Data transfer success.",
-            "file_name": &file_name,
-            "sent_message": &message,
-            "destination": &destination,
-            "destination_ip": &destination_ip,
-            "sender": &sender,
-        }))),
+        Ok(received_time) => {
+            // Persist metadata now that we have the destination's receive timestamp
+            let db_doc = FileInfo {
+                _id: ObjectId::new(),
+                name: file_name.clone().unwrap_or_default(),
+                path: file_path.clone().unwrap_or_default(),
+                sender_bank_id: sender.clone().unwrap_or_default(),
+                receiver_bank_id: destination.clone().unwrap_or_default(),
+                message: message.clone().unwrap_or_default(),
+                time_sent_at: time_sent_at.clone(),
+                time_received_at: received_time.clone(),
+            };
+
+            let _ = db.store_file_info(db_doc).await;
+
+            Ok(HttpResponse::Ok().json(serde_json::json!({
+                "message": "Data transfer success.",
+                "file_name": &file_name,
+                "sent_message": &message,
+                "destination": &destination,
+                "destination_ip": &destination_ip,
+                "sender": &sender,
+                "time_received_at": received_time,
+            })))
+        },
         Err(e) => Err(e),
     }
 }
