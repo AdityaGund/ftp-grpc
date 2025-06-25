@@ -23,6 +23,8 @@ use crate::grpc_client::{self, ftp::transfer_service_client::TransferServiceClie
 use crate::services::db::Database;
 use serde_json;
 use actix_web::{post, get};
+use futures::future::join_all; //for parallel processing of multiple file transfers
+
 
 // pub async fn upload(state: web::Data<AppState>, mut payload: Multipart) -> Result<HttpResponse, AppError> {
 #[post("/upload")]
@@ -30,8 +32,8 @@ pub async fn upload( mut payload: Multipart) -> Result<HttpResponse, AppError> {
     let mut file_path: Option<String> = None;
     let mut file_name: Option<String> = None;
     let mut message: Option<String> = None;
-    let mut destination: Option<String> = None;
-    let mut destination_ip: Option<String> = None;
+    let mut destinations: Option<String> = None;
+    // let mut destination_ip: Option<String> = None;
     let mut sender: Option<String> = None;
 
     fs::create_dir_all("./temp").await?;
@@ -69,24 +71,24 @@ pub async fn upload( mut payload: Multipart) -> Result<HttpResponse, AppError> {
                         message = Some(s);
                     }
                 }
-                Some("destination") => {
+                Some("destinations") => {
                     let mut data = Vec::new();
                     while let Some(chunk) = field.try_next().await? {
                         data.extend_from_slice(chunk.as_ref());
                     }
                     if let Ok(s) = String::from_utf8(data) {
-                        destination = Some(s);
+                        destinations = Some(s);
                     }
                 },
-                Some("destinationIp") => {
-                    let mut data = Vec::new();
-                    while let Some(chunk) = field.try_next().await? {
-                        data.extend_from_slice(chunk.as_ref());
-                    }
-                    if let Ok(s) = String::from_utf8(data) {
-                        destination_ip = Some(s);
-                    }
-                },
+                // Some("destinationIp") => {
+                //     let mut data = Vec::new();
+                //     while let Some(chunk) = field.try_next().await? {
+                //         data.extend_from_slice(chunk.as_ref());
+                //     }
+                //     if let Ok(s) = String::from_utf8(data) {
+                //         destination_ip = Some(s);
+                //     }
+                // },
                 Some("sender") => {
                     let mut data = Vec::new();
                     while let Some(chunk) = field.try_next().await? {
@@ -101,30 +103,99 @@ pub async fn upload( mut payload: Multipart) -> Result<HttpResponse, AppError> {
         }
     }
 
+    let destinations :Vec<serde_json::Value> = match &destinations {
+        Some(s) => serde_json::from_str(&s).map_err(|_| AppError::ClientError("Invalid destination format".to_string()))?,
+        None => vec![],
+    };
+    let file_details = file_path.as_ref().zip(file_name.as_ref())
+    .map(|(p, n)| (p.clone(), n.clone())); // clone for move into tasks
+
+    let message = message.clone();
+    let sender = sender.clone();
+    let mut tasks = Vec::new();
+
+    for dest in &destinations {
+        let username = dest.get("username").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let ip = dest.get("ip").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let file_details = file_details.clone();
+        let message = message.clone();
+        let sender = sender.clone();
+        tasks.push(tokio::spawn(async move {
+            let port = std::env::var("SERVER_PORT").unwrap().to_string();
+            let host = std::env::var("SERVER_HOST").unwrap().to_string();
+            let url = format!("http://{}:{}", host, port);
+            match TransferServiceClient::connect(url).await {
+                Ok(mut client) => {
+                    println!("[CLIENT] connected to server");
+                    let file_details = file_details.as_ref().map(|(p, n)| (p.as_str(), n.as_str()));
+                    let result = grpc_client::transfer_data(
+                        &mut client,
+                        file_details,
+                        message.as_deref(),
+                        Some(&username),
+                        Some(&ip),
+                        sender.as_deref(),
+                    ).await;
+                    match result {
+                        Ok(_) => (username, ip, true, None),
+                        Err(e) => (username, ip, false, Some(format!("{:?}", e))),
+                    }
+                }
+                Err(e) => (username, ip, false, Some(format!("Failed to connect to central server: {:?}", e))),
+            }
+        }));
+    }
+    let results = join_all(tasks).await
+    .into_iter()
+    .filter_map(|res| res.ok())
+    .collect::<Vec<_>>();
+
+    let all_ok = results.iter().all(|(_, _, ok, _)| *ok);
+
+    Ok(HttpResponse::Ok().json(serde_json::json!({
+        "message": if all_ok { "Data transfer success." } else { "Partial or full failure." },
+        "file_name": &file_name,
+        "sent_message": &message,
+        "sender": &sender,
+        "results": results.iter().map(|(username, ip, ok, err)| {
+            serde_json::json!({
+                "destination": username,
+                "destination_ip": ip,
+                "status": if *ok { "success" } else { "failed" },
+                "error": err
+            })
+        }).collect::<Vec<_>>()
+    })))
+
+
+
+    //-----------ABOVE IS NEW CODE FOR FILE UPLOAD HANDLING----------------
     // Perform transfer and build response depending on the outcome
-    let transfer_result: Result<(), AppError>;
+    // let transfer_result: Result<(), AppError>;
 
     // connect to B server
     // task::spawn(async move {
-    let host = std::env::var("SERVER_HOST").unwrap().to_string();
-    let port = std::env::var("SERVER_PORT").unwrap().to_string();
-    let url = format!("http://{}:{}", host, port);
+    // let host = std::env::var("SERVER_HOST").unwrap().to_string();
+    // let port = std::env::var("SERVER_PORT").unwrap().to_string();
+    // let url = format!("http://{}:{}", host, port);
 
-        match TransferServiceClient::connect(url).await {
-            Ok(mut client) => {
-                println!("[CLIENT] connected to server");
-                let file_details = file_path.as_ref().zip(file_name.as_ref())
-                    .map(|(p, n)| (p.as_str(), n.as_str()));
+        // match TransferServiceClient::connect(url).await {
+        //     Ok(mut client) => {
+        //         println!("[CLIENT] connected to server");
+        //         let file_details = file_path.as_ref().zip(file_name.as_ref())
+        //             .map(|(p, n)| (p.as_str(), n.as_str()));
 
-                transfer_result = grpc_client::transfer_data(
-                    &mut client,
-                    file_details,
-                    message.as_deref(),
-                    destination.as_deref(),
-                    destination_ip.as_deref(),
-                    sender.as_deref(),
-                    // Some(state.notifier.clone()),
-                ).await;
+        //         transfer_result = grpc_client::transfer_data(
+        //             &mut client,
+        //             file_details,
+        //             message.as_deref(),
+        //             destination.as_deref(),
+        //             destination_ip.as_deref(),
+        //             sender.as_deref(),
+        //             // Some(state.notifier.clone()),
+        //         ).await;
+
+        //THIS PART IS IGNORED FOR NOW
 
                 // if let Err(e) = grpc_client::transfer_data(
                 //     &mut client,
@@ -142,26 +213,26 @@ pub async fn upload( mut payload: Multipart) -> Result<HttpResponse, AppError> {
                 //         }
                 //     }
                 // }
-            }
-            Err(e) => {
-                eprintln!("Failed to connect to gRPC server: {}", e);
-                return Err(error::AppError::ClientError("error".to_string()));
-            }
-        }
+            // }
+            // Err(e) => {
+                // eprintln!("Failed to connect to gRPC server: {}", e);
+                // return Err(error::AppError::ClientError("error".to_string()));
+            // }
+        // }
     // });
 
     // Decide which HTTP response to send
-    match transfer_result {
-        Ok(_) => Ok(HttpResponse::Ok().json(serde_json::json!({
-            "message": "Data transfer success.",
-            "file_name": &file_name,
-            "sent_message": &message,
-            "destination": &destination,
-            "destination_ip": &destination_ip,
-            "sender": &sender,
-        }))),
-        Err(e) => Err(e), // will be converted to proper HTTP error by ResponseError impl
-    }
+    // match transfer_result {
+    //     Ok(_) => Ok(HttpResponse::Ok().json(serde_json::json!({
+    //         "message": "Data transfer success.",
+    //         "file_name": &file_name,
+    //         "sent_message": &message,
+    //         "destination": &destination,
+    //         "destination_ip": &destination_ip,
+    //         "sender": &sender,
+    //     }))),
+    //     Err(e) => Err(e), // will be converted to proper HTTP error by ResponseError impl
+    // }
 }
 
 #[get("/file-info")]

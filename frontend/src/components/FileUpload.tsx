@@ -19,36 +19,35 @@ interface Bank {
 export function FileUpload() {
   const [file, setFile] = useState<File | null>(null);
   const [message, setMessage] = useState<string>("");
-  const [destination, setDestination] = useState<string>("");
-  const [selectedBank, setSelectedBank] = useState<Bank | null>(null);
+  const [selectedBanks, setSelectedBanks] = useState<Bank[]>([]);
   const [uploading, setUploading] = useState<boolean>(false);
-  // const [progress, setProgress] = useState<number>(0);
   const [banks, setBanks] = useState<Bank[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { username, user } = useAuth();
   const token = localStorage.getItem("jwt");
+  const [dropdownOpen, setDropdownOpen] = useState(false);
 
   useEffect(() => {
     fetchAvailableBanks(token)
       .then((response) => {
-        console.log("Available banks:", response.data);
         setBanks(response.data);
       })
-      .catch((error) => {
-        console.error("Error fetching available banks:", error);
+      .catch(() => {
         toast.error("Failed to load available banks.");
       });
   }, []);
 
-  const handleDestinationChange = (bank: Bank | null) => {
-    setSelectedBank(bank);
+  const handleBanksChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const selectedOptions = Array.from(e.target.selectedOptions).map(opt => opt.value);
+    const selected = banks.filter(b => selectedOptions.includes(b.username));
+    setSelectedBanks(selected);
   };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
 
-    if (!selectedBank) {
-      toast.error("Please select a destination bank");
+    if (selectedBanks.length === 0) {
+      toast.error("Please select at least one destination bank");
       return;
     }
 
@@ -63,38 +62,67 @@ export function FileUpload() {
       const response = await uploadFile(
         file,
         message || null,
-        selectedBank.username,
-        selectedBank.ip,
+        selectedBanks.map(b => ({ username: b.username, ip: b.ip })),
         username,
         token,
         user?.role === 'admin' ? 'admin' : 'bank',
-        // (pct) => setProgress(pct)
       );
 
-      toast.success("Transfer completed successfully!");
-      console.log("Upload response:", response);
+      // Show overall message
+      toast.success(response.data.message);
 
-      // Reset form
+      // Show per-destination results
+      if (response.data.results && Array.isArray(response.data.results)) {
+        response.data.results.forEach((result: any) => {
+          if (result.status === "success") {
+            toast.success(`Transfer to ${result.destination} (${result.destination_ip}) succeeded.`);
+          } else {
+            toast.error(`Transfer to ${result.destination} (${result.destination_ip}) failed: ${result.error}`);
+          }
+        });
+      }
+
       setFile(null);
       setMessage("");
+      setSelectedBanks([]);
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
     } catch (error) {
-      // setProgress(0);
       toast.error("Transfer failed. Please try again.");
-      console.error("Upload error:", error);
     } finally {
       setUploading(false);
-    }
+  }
+    // try {
+    //   // Send array of banks to backend
+    //   const response = await uploadFile(
+    //     file,
+    //     message || null,
+    //     selectedBanks.map(b => ({ username: b.username, ip: b.ip })), // array of banks
+    //     username,
+    //     token,
+    //     user?.role === 'admin' ? 'admin' : 'bank',
+    //     // (pct) => setProgress(pct)
+    //   );
+
+    //   toast.success("Transfer completed successfully!");
+    //   setFile(null);
+    //   setMessage("");
+    //   setSelectedBanks([]);
+    //   if (fileInputRef.current) {
+    //     fileInputRef.current.value = "";
+    //   }
+    // } catch (error) {
+    //   toast.error("Transfer failed. Please try again.");
+    // } finally {
+    //   setUploading(false);
+    // }
   };
 
   const handleReset = () => {
     setFile(null);
     setMessage("");
-    setDestination("");
-    setSelectedBank(null)
-    // setProgress(0);
+    setSelectedBanks([]);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -105,6 +133,31 @@ export function FileUpload() {
       fileInputRef.current.click();
     }
   };
+
+  const selectAllBanks = () => setSelectedBanks(banks);
+
+  // Deselect all banks
+  const deselectAllBanks = () => setSelectedBanks([]);
+  const toggleBank = (bank: Bank) => {
+    setSelectedBanks((prev) =>
+      prev.some((b) => b.username === bank.username)
+        ? prev.filter((b) => b.username !== bank.username)
+        : [...prev, bank]
+    );
+  };
+  // Close dropdown on outside click
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setDropdownOpen(false);
+      }
+    }
+    if (dropdownOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [dropdownOpen]);
 
   return (
     <div className="w-full max-w-3xl mx-auto">
@@ -123,33 +176,84 @@ export function FileUpload() {
         <CardContent className="p-8">
           <form onSubmit={handleSubmit} className="space-y-8">
             <div className="space-y-4">
-              <label htmlFor="destination" className="text-sm font-semibold flex items-center gap-2 cursor-pointer">
+              <label className="text-sm font-semibold flex items-center gap-2 cursor-pointer">
                 <User className="h-4 w-4 text-muted-foreground" />
-                <span>Destination Bank</span>
+                <span>Destination Banks</span>
               </label>
-              <div className="relative">
-                <select
-                  id="destination"
-                  value={selectedBank?.username || ""}
-                  onChange={(e) => {
-                    const bank = banks.find(b => b.username === e.target.value) || null;
-                    handleDestinationChange(bank);
-                  }}
+              <div className="relative" ref={dropdownRef}>
+                <button
+                  type="button"
+                  className="w-full p-3 border rounded-lg bg-background text-left flex justify-between items-center hover:border-ring/60 focus:border-ring transition-all duration-200"
+                  onClick={() => setDropdownOpen((open) => !open)}
                   disabled={uploading}
-                  required
-                  className="w-full p-3 border rounded-lg bg-background hover:border-ring/60 focus:border-ring focus:ring-ring/50 focus:ring-[3px] transition-all duration-200 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  <option value="" disabled>-- Select a destination bank --</option>
-                  {banks.map((bank) => (
-                    <option key={bank.username} value={bank.username}>
-                      {bank.username} ({bank.ip})
-                    </option>
-                  ))}
-                </select>
+                  <span>
+                    {selectedBanks.length === 0
+                      ? "Select destination banks..."
+                      : `${selectedBanks.length} selected`}
+                  </span>
+                  <svg className={`w-4 h-4 ml-2 transition-transform ${dropdownOpen ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                {dropdownOpen && (
+                  <div className="absolute z-10 mt-2 w-full bg-white border rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                    <div className="flex items-center px-3 py-2 border-b">
+                      <button
+                        type="button"
+                        className="text-xs text-primary mr-2 underline"
+                        onClick={selectAllBanks}
+                        disabled={banks.length === 0}
+                      >
+                        Select All
+                      </button>
+                      <button
+                        type="button"
+                        className="text-xs text-muted-foreground underline"
+                        onClick={deselectAllBanks}
+                        disabled={selectedBanks.length === 0}
+                      >
+                        Clear
+                      </button>
+                    </div>
+                    {banks.map((bank) => (
+                      <label key={bank.username} className="flex items-center px-4 py-2 cursor-pointer hover:bg-muted/30">
+                        <input
+                          type="checkbox"
+                          checked={selectedBanks.some((b) => b.username === bank.username)}
+                          onChange={() => toggleBank(bank)}
+                          className="mr-2"
+                          disabled={uploading}
+                        />
+                        <span>{bank.username} <span className="text-xs text-muted-foreground">({bank.ip})</span></span>
+                      </label>
+                    ))}
+                    {banks.length === 0 && (
+                      <div className="px-4 py-2 text-sm text-muted-foreground">No banks available</div>
+                    )}
+                  </div>
+                )}
               </div>
-              {selectedBank && (
-                <div className="text-sm text-muted-foreground bg-muted/30 p-3 rounded-lg border">
-                  <strong>Selected:</strong> {selectedBank.username} • <strong>IP:</strong> {selectedBank.ip}
+              {/* Show selected banks as chips */}
+              {selectedBanks.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {selectedBanks.map((b) => (
+                    <span
+                      key={b.username}
+                      className="flex items-center bg-primary/10 text-primary px-3 py-1 rounded-full text-xs font-medium border"
+                    >
+                      {b.username}
+                      <button
+                        type="button"
+                        className="ml-2 text-primary hover:text-destructive"
+                        onClick={() => toggleBank(b)}
+                        disabled={uploading}
+                        aria-label={`Remove ${b.username}`}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
                 </div>
               )}
             </div>

@@ -17,8 +17,9 @@ const BASE = import.meta.env.VITE_CLIENT_API_URL ?? 'http://localhost:8081';
 export function uploadFile(
   file: File | null,
   message: string | null,
-  destination: string,
-  destination_ip: string,
+  // destination: string,
+  // destination_ip: string,
+  detinations:{username: string, ip: string}[],
   sender: string | null,
   token: string | null,
   role: "bank" | "admin" = "bank",
@@ -27,8 +28,7 @@ export function uploadFile(
   const form = new FormData();
   if (file) form.append('file', file);
   if (message) form.append('message', message);
-  form.append('destination', destination);
-  form.append('destinationIp', destination_ip);
+  form.append('destinations', JSON.stringify(detinations)); // ->sending our array destinaiont
   if (sender) form.append('sender', sender);
 
   // determine endpoint
