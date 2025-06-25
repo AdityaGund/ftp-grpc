@@ -257,8 +257,7 @@ pub async fn admin_upload(
     let mut file_path: Option<String> = None;
     let mut file_name: Option<String> = None;
     let mut message: Option<String> = None;
-    let mut destination: Option<String> = None;
-    let mut destination_ip: Option<String> = None;
+    let mut destinations_field: Option<String> = None;
     let mut sender: Option<String> = None;
 
     // Ensure temp directory exists
@@ -286,22 +285,13 @@ pub async fn admin_upload(
                         message = Some(s);
                     }
                 }
-                Some("destination") => {
+                Some("destinations") => {
                     let mut data = Vec::<u8>::new();
                     while let Some(chunk) = field.try_next().await? {
                         data.extend_from_slice(chunk.as_ref());
                     }
                     if let Ok(s) = String::from_utf8(data) {
-                        destination = Some(s);
-                    }
-                }
-                Some("destinationIp") => {
-                    let mut data = Vec::<u8>::new();
-                    while let Some(chunk) = field.try_next().await? {
-                        data.extend_from_slice(chunk.as_ref());
-                    }
-                    if let Ok(s) = String::from_utf8(data) {
-                        destination_ip = Some(s);
+                        destinations_field = Some(s);
                     }
                 }
                 Some("sender") => {
@@ -318,56 +308,90 @@ pub async fn admin_upload(
         }
     }
 
-    // Build gRPC URL for destination bank directly
-    let dest_ip = destination_ip.as_deref().ok_or_else(|| AppError::ClientError("destination IP missing".into()))?;
-    let url = if dest_ip.starts_with("http") { dest_ip.to_string() } else { format!("http://{}:50053", dest_ip) };
-
-    let mut client = match crate::grpc_client::TransferServiceClient::connect(url.clone()).await {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("[ADMIN] Failed to connect to gRPC server: {}", e);
-            return Err(AppError::ClientError("gRPC connection failed".into()));
-        }
+    // Parse destinations JSON array
+    let destinations: Vec<serde_json::Value> = match &destinations_field {
+        Some(s) => serde_json::from_str(&s).map_err(|_| AppError::ClientError("Invalid destination format".into()))?,
+        None => vec![],
     };
 
-    // Capture the time the admin initiated the transfer
-    let time_sent_at = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string();
+    // Prepare shared data for concurrent transfers
+    let file_details = file_path.as_ref().zip(file_name.as_ref())
+        .map(|(p, n)| (p.clone(), n.clone())); // clone for move into tasks
 
-    let transfer_res = crate::grpc_client::transfer_data(
-        &mut client,
-        file_path.as_ref().zip(file_name.as_ref()).map(|(p, n)| (p.as_str(), n.as_str())),
-        message.as_deref(),
-        destination.as_deref(),
-        destination_ip.as_deref(),
-        sender.as_deref(),
-    ).await;
+    let message_clone = message.clone();
+    let sender_clone = sender.clone();
 
-    match transfer_res {
-        Ok(received_time) => {
-            // Persist metadata now that we have the destination's receive timestamp
-            let db_doc = FileInfo {
-                _id: ObjectId::new(),
-                name: file_name.clone().unwrap_or_default(),
-                path: file_path.clone().unwrap_or_default(),
-                sender_bank_id: sender.clone().unwrap_or_default(),
-                receiver_bank_id: destination.clone().unwrap_or_default(),
-                message: message.clone().unwrap_or_default(),
-                time_sent_at: time_sent_at.clone(),
-                time_received_at: received_time.clone(),
-            };
+    let mut tasks = Vec::new();
 
-            let _ = db.store_file_info(db_doc).await;
+    for dest in &destinations {
+        let username = dest.get("username").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let ip = dest.get("ip").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
-            Ok(HttpResponse::Ok().json(serde_json::json!({
-                "message": "Data transfer success.",
-                "file_name": &file_name,
-                "sent_message": &message,
-                "destination": &destination,
-                "destination_ip": &destination_ip,
-                "sender": &sender,
-                "time_received_at": received_time,
-            })))
-        },
-        Err(e) => Err(e),
+        let file_details = file_details.clone();
+        let message = message_clone.clone();
+        let sender = sender_clone.clone();
+        let db = db.clone();
+        let file_name = file_name.clone();
+        let file_path = file_path.clone();
+
+        tasks.push(async move {
+            // Build gRPC URL for each destination
+            let url = if ip.starts_with("http") { ip.clone() } else { format!("http://{}:50053", ip) };
+
+            match crate::grpc_client::TransferServiceClient::connect(url).await {
+                Ok(mut client) => {
+                    let file_details_ref = file_details.as_ref().map(|(p, n)| (p.as_str(), n.as_str()));
+
+                    let now = Utc::now().format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string();
+                    
+                    match crate::grpc_client::transfer_data(
+                        &mut client,
+                        file_details_ref,
+                        message.as_deref(),
+                        Some(&username),
+                        Some(&ip),
+                        sender.as_deref(),
+                    ).await {
+                        Ok(time_received) => {
+                            // Store metadata
+                            let doc = FileInfo {
+                                _id: ObjectId::new(),
+                                name: file_name.clone().unwrap_or_default(),
+                                path: file_path.clone().unwrap_or_default(),
+                                sender_bank_id: sender.clone().unwrap_or_default(),
+                                receiver_bank_id: username.clone(),
+                                message: message.clone().unwrap_or_default(),
+                                time_sent_at: now,
+                                time_received_at: time_received.clone(),
+                            };
+                            let _ = db.store_file_info(doc).await;
+
+                            (username, ip, true, None::<String>)
+                        }
+                        Err(e) => (username, ip, false, Some(e.to_string())),
+                    }
+                }
+                Err(e) => (username, ip, false, Some(e.to_string())),
+            }
+        });
     }
+
+    let results = futures::future::join_all(tasks).await;
+
+    let all_ok = results.iter().all(|(_, _, ok, _)| *ok);
+
+    Ok(HttpResponse::Ok().json(serde_json::json!({
+        "message": if all_ok { "Data transfer success." } else { "Partial or full failure." },
+        "file_name": &file_name,
+        "sent_message": &message,
+        "sender": &sender,
+        "results": results.iter().map(|(username, ip, ok, err)| {
+            serde_json::json!({
+                "destination": username,
+                "destination_ip": ip,
+                "status": if *ok { "success" } else { "failed" },
+                "error": err
+            })
+        }).collect::<Vec<_>>()
+    })))
 }

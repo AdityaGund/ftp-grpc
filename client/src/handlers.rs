@@ -120,74 +120,81 @@ pub async fn upload(
     let mut tasks = Vec::new();
 
     for dest in &destinations {
-        let username = dest.get("username").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let ip = dest.get("ip").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let username = dest
+            .get("username")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let ip = dest
+            .get("ip")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+
         let file_details = file_details.clone();
         let message = message.clone();
         let sender = sender.clone();
-        tasks.push(tokio::spawn(async move {
-            let port = std::env::var("SERVER_PORT").unwrap().to_string();
-            let host = std::env::var("SERVER_HOST").unwrap().to_string();
+        let db = db.clone();
+        let file_name = file_name.clone();
+        let file_path = file_path.clone();
+
+        // Push an async future instead of spawning a new task so we don't need Send for HttpResponse.
+        tasks.push(async move {
+            let port = std::env::var("SERVER_PORT").unwrap();
+            let host = std::env::var("SERVER_HOST").unwrap();
             let url = format!("http://{}:{}", host, port);
+
             match TransferServiceClient::connect(url).await {
                 Ok(mut client) => {
                     println!("[CLIENT] connected to server");
-                    let file_details = file_details.as_ref().map(|(p, n)| (p.as_str(), n.as_str()));
-                    let result = grpc_client::transfer_data(
+                    let file_details_ref = file_details
+                        .as_ref()
+                        .map(|(p, n)| (p.as_str(), n.as_str()));
+
+                    let now = Utc::now()
+                            .format("%Y-%m-%d %H:%M:%S%.3f %Z")
+                            .to_string();
+                    match grpc_client::transfer_data(
                         &mut client,
-                        file_details,
+                        file_details_ref,
                         message.as_deref(),
                         Some(&username),
                         Some(&ip),
                         sender.as_deref(),
-                    ).await;
-                    match result {
+                    )
+                    .await
+                    {
                         Ok(time_received) => {
-                            let now = Utc::now().format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string();
+                            // Store transfer info in DB (best-effort)
+                            
                             let doc = crate::models::file_info_model::FileInfo {
                                 _id: ObjectId::new(),
                                 name: file_name.clone().unwrap_or_default(),
                                 path: file_path.clone().unwrap_or_default(),
                                 sender_bank_id: sender.clone().unwrap_or_default(),
-                                receiver_bank_id: ip.clone(),
+                                receiver_bank_id: username.clone(),
                                 message: message.clone().unwrap_or_default(),
-                                time_sent_at: now.clone(),
-                                time_received_at: time_received.clone(),
+                                time_sent_at: now,
+                                time_received_at: time_received,
                             };
                             let _ = db.store_file_info(doc).await;
 
-                            Ok(HttpResponse::Ok().json(serde_json::json!({
-                                "message": "Data transfer success.",
-                                "file_name": &file_name,
-                                "sent_message": &message,
-                                "destination": &username,
-                                "destination_ip": &ip,
-                                "sender": &sender,
-                            })))
-
-                            // (username, ip, true, None)
-                        
-                        },
-                        Err(e) => {
-                            Err(e)
-                            // (username, ip, false, Some(format!("{:?}", e)))
-                        },
+                            (username, ip, true, None::<String>)
+                        }
+                        Err(e) => (username, ip, false, Some(e.to_string())),
                     }
                 }
-                Err(e) => {
-                    Err(e)
-                    // (username, ip, false, Some(format!("Failed to connect to central server: {:?}", e)))},
+                Err(e) => (username, ip, false, Some(e.to_string())),
             }
-    }}));
+        });
     }
-    let results = join_all(tasks).await
-    .into_iter()
-    .filter_map(|res| res.ok())
-    .collect::<Vec<_>>();
+
+    // Execute all transfers concurrently.
+    let results = join_all(tasks).await;
 
     let all_ok = results.iter().all(|(_, _, ok, _)| *ok);
 
-    return Ok(HttpResponse::Ok().json(serde_json::json!({
+    Ok(HttpResponse::Ok().json(serde_json::json!({
         "message": if all_ok { "Data transfer success." } else { "Partial or full failure." },
         "file_name": &file_name,
         "sent_message": &message,
