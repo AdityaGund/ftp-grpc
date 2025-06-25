@@ -142,13 +142,43 @@ pub async fn upload(
                         sender.as_deref(),
                     ).await;
                     match result {
-                        Ok(_) => (username, ip, true, None),
-                        Err(e) => (username, ip, false, Some(format!("{:?}", e))),
+                        Ok(time_received) => {
+                            let now = Utc::now().format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string();
+                            let doc = crate::models::file_info_model::FileInfo {
+                                _id: ObjectId::new(),
+                                name: file_name.clone().unwrap_or_default(),
+                                path: file_path.clone().unwrap_or_default(),
+                                sender_bank_id: sender.clone().unwrap_or_default(),
+                                receiver_bank_id: ip.clone(),
+                                message: message.clone().unwrap_or_default(),
+                                time_sent_at: now.clone(),
+                                time_received_at: time_received.clone(),
+                            };
+                            let _ = db.store_file_info(doc).await;
+
+                            Ok(HttpResponse::Ok().json(serde_json::json!({
+                                "message": "Data transfer success.",
+                                "file_name": &file_name,
+                                "sent_message": &message,
+                                "destination": &username,
+                                "destination_ip": &ip,
+                                "sender": &sender,
+                            })))
+
+                            // (username, ip, true, None)
+                        
+                        },
+                        Err(e) => {
+                            Err(e)
+                            // (username, ip, false, Some(format!("{:?}", e)))
+                        },
                     }
                 }
-                Err(e) => (username, ip, false, Some(format!("Failed to connect to central server: {:?}", e))),
+                Err(e) => {
+                    Err(e)
+                    // (username, ip, false, Some(format!("Failed to connect to central server: {:?}", e)))},
             }
-        }));
+    }}));
     }
     let results = join_all(tasks).await
     .into_iter()
@@ -157,7 +187,7 @@ pub async fn upload(
 
     let all_ok = results.iter().all(|(_, _, ok, _)| *ok);
 
-    Ok(HttpResponse::Ok().json(serde_json::json!({
+    return Ok(HttpResponse::Ok().json(serde_json::json!({
         "message": if all_ok { "Data transfer success." } else { "Partial or full failure." },
         "file_name": &file_name,
         "sent_message": &message,
@@ -176,7 +206,7 @@ pub async fn upload(
 
     //-----------ABOVE IS NEW CODE FOR FILE UPLOAD HANDLING----------------
     // Perform transfer and build response depending on the outcome
-    let transfer_result: Result<String, AppError>;
+    // let transfer_result: Result<String, AppError>;
 
     // connect to B server
     // task::spawn(async move {
@@ -226,34 +256,6 @@ pub async fn upload(
         // }
     // });
 
-    // Decide which HTTP response to send
-    match transfer_result {
-        Ok(time_received) => {
-            // Persist metadata
-            let now = Utc::now().format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string();
-            let doc = crate::models::file_info_model::FileInfo {
-                _id: ObjectId::new(),
-                name: file_name.clone().unwrap_or_default(),
-                path: file_path.clone().unwrap_or_default(),
-                sender_bank_id: sender.clone().unwrap_or_default(),
-                receiver_bank_id: destination.clone().unwrap_or_default(),
-                message: message.clone().unwrap_or_default(),
-                time_sent_at: now.clone(),
-                time_received_at: time_received.clone(),
-            };
-            let _ = db.store_file_info(doc).await;
-
-            Ok(HttpResponse::Ok().json(serde_json::json!({
-                "message": "Data transfer success.",
-                "file_name": &file_name,
-                "sent_message": &message,
-                "destination": &destination,
-                "destination_ip": &destination_ip,
-                "sender": &sender,
-            })))
-        },
-        Err(e) => Err(e), // will be converted to proper HTTP error by ResponseError impl
-    }
 }
 
 #[get("/file-info")]
@@ -265,6 +267,7 @@ pub async fn fetch_info(db: web::Data<std::sync::Arc<Database>>) -> Result<HttpR
         "data": files
     })))
 }
+
 // pub async fn events_stream(state: web::Data<AppState>) -> impl Responder {
 //     let rx = state.notifier.subscribe();
 //     let stream = BroadcastStream::new(rx).map(|msg| match msg {
