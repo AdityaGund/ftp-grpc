@@ -60,7 +60,7 @@ impl FileTransferService {
         &self,
         message_content: Vec<u8>,
         original_metadata: ftp::Metadata,
-        receiver_bank_id: &str,
+        _receiver_bank_id: &str,
         receiver_bank_ip: &str,
     ) -> Result<impl Stream<Item = Result<TransferResponse, Status>>, Status> {
         // The client now sends the destination IP/URL directly in the header (metadata)
@@ -97,14 +97,20 @@ impl FileTransferService {
         &self,
         file_path: &Path,
         original_metadata: ftp::Metadata,
-        receiver_bank_id: &str,
+        _receiver_bank_id: &str,
         // Sender used to propagate ACKs back to the original client connection. -> tx
         ack_sender: mpsc::Sender<Result<TransferResponse, Status>>,
         receiver_bank_ip: &str,
+        msg: Option<Vec<u8>>,
     ) -> Result<(), Status> {
         
         let db_clone = self.db.clone();
-        
+
+        let message: String = msg
+            .as_ref()
+            .map(|bytes| String::from_utf8_lossy(bytes).to_string())
+            .unwrap_or_default();
+            
         let destination_url = if receiver_bank_ip.starts_with("http") {
             receiver_bank_ip.to_string()
         } else {
@@ -232,7 +238,7 @@ impl FileTransferService {
                             },
                             sender_bank_id: original_metadata.sender_bank_id.clone(),
                             receiver_bank_id: original_metadata.receiver_bank_id.clone(),
-                            message: String::new(),
+                            message: message.clone(),
                             time_sent_at: original_metadata.timestamp.clone(),
                             time_received_at: if !ok_res.time_received_at.is_empty() {
                                 ok_res.time_received_at.clone()
@@ -277,10 +283,12 @@ impl TransferService for FileTransferService {
             let mut receiver_bank_ip: Option<String> = None;
             let mut full_metadata: Option<ftp::Metadata> = None;
             let mut message_only_content: Option<Vec<u8>> = None;
+            let mut attachment_message: Option<Vec<u8>> = None;
+            const SEPARATOR: &[u8] = b"---MESSAGE_END---";
 
             while let Some(result) = in_stream.next().await {
                 match result {
-                    Ok(req) => {
+                    Ok(mut req) => {
                         if full_metadata.is_none() {
                             if let Some(metadata) = &req.metadata {
                                 full_metadata = Some(metadata.clone());
@@ -302,6 +310,17 @@ impl TransferService for FileTransferService {
                                 let file_info = match &metadata.payload_type {
                                     Some(ftp::metadata::PayloadType::FileInfo(info)) => Some(info),
                                     Some(ftp::metadata::PayloadType::AttachmentInfo(info)) => {
+                                        // Attempt to extract inline message on the very first chunk for AttachmentInfo
+                                        if attachment_message.is_none() {
+                                            if let Some(pos) = req
+                                                .content
+                                                .windows(SEPARATOR.len())
+                                                .position(|window| window == SEPARATOR)
+                                            {
+                                                attachment_message = Some(req.content[..pos].to_vec());
+                                                // DO NOT modify req.content so that destination still receives the message
+                                            }
+                                        }
                                         info.file_info.as_ref()
                                     }
                                     _ => None,
@@ -423,7 +442,9 @@ impl TransferService for FileTransferService {
                         }
                     }
                 } else if let Some(path) = temp_file_path {
-                    match self_clone.forward_file(&path, metadata, &receiver_id, tx.clone(), &receiver_bank_ip.unwrap()).await {
+                    let msg_for_file = attachment_message.or(message_only_content.clone());
+
+                    match self_clone.forward_file(&path, metadata, &receiver_id, tx.clone(), &receiver_bank_ip.unwrap(), msg_for_file).await {
                         Ok(_) => {
                             // No need to send response back to client as the file transfer is complete
                         }
