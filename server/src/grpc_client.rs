@@ -21,7 +21,7 @@ pub async fn transfer_data(
     destination: Option<&str>,
     destination_ip: Option<&str>,
     sender: Option<&str>
-) -> Result<(), AppError> {
+) -> Result<String, AppError> {
     // Implementation identical to client crate
 
     if file_details.is_none() && message_content.is_none() {
@@ -172,13 +172,22 @@ pub async fn transfer_data(
     while let Some(res) = response_stream.next().await {
         match res {
             Ok(resp) => {
-                if resp.status == ftp::Status::Success as i32 || resp.status == ftp::Status::Failure as i32 {
-                    break;
+                if resp.status == ftp::Status::Success as i32 {
+                    // Success – return the destination timestamp (or now if empty)
+                    let recv_ts = if !resp.time_received_at.is_empty() {
+                        resp.time_received_at.clone()
+                    } else {
+                        Utc::now().format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string()
+                    };
+                    return Ok(recv_ts);
+                } else if resp.status == ftp::Status::Failure as i32 {
+                    return Err(AppError::ClientError("Transfer failed".into()));
                 }
             }
             Err(status) => return Err(AppError::TonicStatus(status)),
         }
     }
 
-    Ok(())
+    // Fallback – should not ordinarily reach here.
+    Ok(Utc::now().format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string())
 } 

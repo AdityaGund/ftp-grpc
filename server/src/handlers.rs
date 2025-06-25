@@ -330,6 +330,9 @@ pub async fn admin_upload(
         }
     };
 
+    // Capture the time the admin initiated the transfer
+    let time_sent_at = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string();
+
     let transfer_res = crate::grpc_client::transfer_data(
         &mut client,
         file_path.as_ref().zip(file_name.as_ref()).map(|(p, n)| (p.as_str(), n.as_str())),
@@ -340,10 +343,8 @@ pub async fn admin_upload(
     ).await;
 
     match transfer_res {
-        Ok(_) => {
-            // On success, persist metadata in ADMIN DB
-            let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string();
-
+        Ok(received_time) => {
+            // Persist metadata now that we have the destination's receive timestamp
             let db_doc = FileInfo {
                 _id: ObjectId::new(),
                 name: file_name.clone().unwrap_or_default(),
@@ -351,8 +352,8 @@ pub async fn admin_upload(
                 sender_bank_id: sender.clone().unwrap_or_default(),
                 receiver_bank_id: destination.clone().unwrap_or_default(),
                 message: message.clone().unwrap_or_default(),
-                time_sent_at: now.clone(),
-                time_received_at: now,
+                time_sent_at: time_sent_at.clone(),
+                time_received_at: received_time.clone(),
             };
 
             let _ = db.store_file_info(db_doc).await;
@@ -364,6 +365,7 @@ pub async fn admin_upload(
                 "destination": &destination,
                 "destination_ip": &destination_ip,
                 "sender": &sender,
+                "time_received_at": received_time,
             })))
         },
         Err(e) => Err(e),

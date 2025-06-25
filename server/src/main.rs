@@ -372,14 +372,48 @@ impl TransferService for FileTransferService {
             // forward the msg/file to destination
             if let (Some(receiver_id), Some(metadata)) = (receiver_bank_id, full_metadata) {
                 if let Some(message_content) = message_only_content {
+                    // Convert message bytes to String for DB storage
+                    let message_str = String::from_utf8_lossy(&message_content).to_string();
+                    let metadata_clone = metadata.clone();
+
                     match self_clone
-                        .forward_message(message_content, metadata, &receiver_id, &receiver_bank_ip.unwrap())
+                        .forward_message(message_content, metadata_clone.clone(), &receiver_id, &receiver_bank_ip.unwrap())
                         .await
                     {
                         Ok(mut forward_stream) => {
+                            let db_ref = self_clone.db.clone();
                             while let Some(item) = forward_stream.next().await {
-                                // send destinations response to client
+                                let terminate = matches!(
+                                    &item,
+                                    Ok(resp) if resp.status == ftp::Status::Success as i32 || resp.status == ftp::Status::Failure as i32
+                                );
+
+                                if let Ok(resp) = &item {
+                                    if resp.status == ftp::Status::Success as i32 {
+                                        // Store metadata for message-only transfer
+                                        let db_doc = DbFileInfo {
+                                            _id: ObjectId::new(),
+                                            name: String::new(),
+                                            path: String::new(),
+                                            sender_bank_id: metadata_clone.sender_bank_id.clone(),
+                                            receiver_bank_id: metadata_clone.receiver_bank_id.clone(),
+                                            message: message_str.clone(),
+                                            time_sent_at: metadata_clone.timestamp.clone(),
+                                            time_received_at: if !resp.time_received_at.is_empty() {
+                                                resp.time_received_at.clone()
+                                            } else {
+                                                chrono::Utc::now().format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string()
+                                            },
+                                        };
+                                        let _ = db_ref.store_file_info(db_doc).await;
+                                    }
+                                }
+
                                 if tx.send(item).await.is_err() {
+                                    break;
+                                }
+
+                                if terminate {
                                     break;
                                 }
                             }
