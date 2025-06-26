@@ -33,6 +33,7 @@ use std::sync::Arc;
 
 // const MAX_RETRIES: u8 = 3;
 const CHUNK_SIZE: usize = (1024 * 1024) * 5;
+const MAX_RETRIES: u8 = 3;
 
 pub mod routes;
 pub mod handlers;
@@ -128,8 +129,7 @@ impl FileTransferService {
                 tonic::Status::internal(format!("Failed to connect to destination: {}", e))
             })?;
 
-        // const CHUNK_SIZE: usize = (1024 * 1024) * 4; // 1MB
-        const MAX_RETRIES: u8 = 3;
+        
 
         let mut file = fs::File::open(file_path).await.map_err(|e| {
             Status::internal(format!("Failed to open temp file for forwarding: {}", e))
@@ -327,6 +327,7 @@ impl TransferService for FileTransferService {
                                 };
 
                                 if let Some(fi) = file_info {
+                                    println!("[ADMIN SERVER] CREATING TEMPORARY DIRECTORY");
                                     let storage_dir = "received_files";
                                     if fs::create_dir_all(storage_dir).await.is_err() {
                                         let _ = tx
@@ -345,6 +346,7 @@ impl TransferService for FileTransferService {
 
                         if let Some(f) = file.as_mut() {
                             if !req.content.is_empty() {
+                                println!("[ADMIN SERVER] WRITING CHUNK");
                                 if f.write_all(&req.content).await.is_err() {
                                     let _ = tx
                                         .send(Err(Status::internal(
@@ -353,6 +355,7 @@ impl TransferService for FileTransferService {
                                         .await;
                                     return;
                                 }
+                                println!("[ADMIN SERVER] WROTE CHUNK");
                                 // After successfully persisting the chunk, send an ACK back to the client.
                                 let ack = TransferResponse {
                                     transfer_id: req
@@ -379,14 +382,14 @@ impl TransferService for FileTransferService {
                 }
             }
 
-            if let Some(f) = file.as_mut() {
-                if f.flush().await.is_err() {
-                    let _ = tx
-                        .send(Err(Status::internal("Failed to flush temp file")))
-                        .await;
-                    return;
-                }
-            }
+            // if let Some(f) = file.as_mut() {
+            //     if f.flush().await.is_err() {
+            //         let _ = tx
+            //             .send(Err(Status::internal("Failed to flush temp file")))
+            //             .await;
+            //         return;
+            //     }
+            // }
 
             // forward the msg/file to destination
             if let (Some(receiver_id), Some(metadata)) = (receiver_bank_id, full_metadata) {

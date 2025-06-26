@@ -267,6 +267,7 @@ pub async fn admin_upload(
     fs::create_dir_all("./temp").await?;
 
     while let Some(mut field) = payload.try_next().await? {
+        println!("here");
         if let Some(cd) = field.content_disposition() {
             match cd.get_name() {
                 Some("file") => {
@@ -316,22 +317,27 @@ pub async fn admin_upload(
         }
     }
 
+    println!("parsing destinations");
     // Parse destinations JSON array
     let destinations: Vec<serde_json::Value> = match &destinations_field {
         Some(s) => serde_json::from_str(&s).map_err(|_| AppError::ClientError("Invalid destination format".into()))?,
         None => vec![],
     };
-
+    println!("parsed");
+    
     // Prepare shared data for concurrent transfers
     let file_details = file_path.as_ref().zip(file_name.as_ref())
-        .map(|(p, n)| (p.clone(), n.clone())); // clone for move into tasks
+    .map(|(p, n)| (p.clone(), n.clone())); // clone for move into tasks
 
     let message_clone = message.clone();
     let sender_clone = sender.clone();
 
     let mut tasks = Vec::new();
 
+    println!("parsed");
+    println!("FOR LOOP started");
     for dest in &destinations {
+        println!("inside for loop");
         let username = dest.get("username").and_then(|v| v.as_str()).unwrap_or("").to_string();
         let ip = dest.get("ip").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
