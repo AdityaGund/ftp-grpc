@@ -15,6 +15,8 @@ use tokio::fs::{self, File};
 use tokio::io::AsyncWriteExt;
 use crate::models::file_info_model::FileInfo;
 use chrono::Utc;
+use tokio_util::io::StreamReader;
+use futures_util::stream::StreamExt;
 
 #[post("/login")]
 pub async fn login(req: HttpRequest, db: web::Data<Database>) -> Result<HttpResponse, AppError> {
@@ -271,9 +273,14 @@ pub async fn admin_upload(
                     let filename = cd.get_filename().unwrap_or("unknown_file").to_string();
                     let temp_path = format!("./temp/{}", &filename);
                     let mut f = File::create(&temp_path).await?;
-                    while let Some(chunk) = field.try_next().await? {
-                        f.write_all(chunk.as_ref()).await?;
-                    }
+                    // Convert the multipart field (a Stream of Bytes) into an AsyncRead
+                    // so we can leverage Tokio's highly-optimised copy implementation.
+                    let mut stream_reader = StreamReader::new(
+                        field
+                            .map_ok(|bytes| bytes)
+                            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string())),
+                    );
+                    tokio::io::copy(&mut stream_reader, &mut f).await?;
                     file_path = Some(temp_path);
                     file_name = Some(filename);
                 }

@@ -16,6 +16,8 @@ use tokio::io::AsyncWriteExt;
 // use futures_util::StreamExt;
 // use std::convert::Infallible;
 // use crate::AppState;
+use tokio_util::io::StreamReader;
+use futures_util::stream::StreamExt;
 
 use crate::error::{self, AppError};
 // use crate::grpc_client::TransferResponse;
@@ -61,9 +63,14 @@ pub async fn upload(
                     // store file temporarily on client-side
                     let mut f = File::create(&path).await?;
 
-                    while let Some(chunk) = field.try_next().await? {
-                        f.write_all(chunk.as_ref()).await?;
-                    }
+                    // Convert the multipart field (a Stream of Bytes) into an AsyncRead
+                    // so we can leverage Tokio's highly-optimised copy implementation.
+                    let mut stream_reader = StreamReader::new(
+                        field
+                            .map_ok(|bytes| bytes)
+                            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string())),
+                    );
+                    tokio::io::copy(&mut stream_reader, &mut f).await?;
                     file_path = Some(path);
                     file_name = Some(filename);
                 }
