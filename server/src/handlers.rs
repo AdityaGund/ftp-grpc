@@ -15,8 +15,8 @@ use tokio::fs::{self, File};
 use tokio::io::AsyncWriteExt;
 use crate::models::file_info_model::FileInfo;
 use chrono::Utc;
-use tokio_util::io::StreamReader;
 use futures_util::stream::StreamExt;
+use futures::future::join_all;
 
 #[post("/login")]
 pub async fn login(req: HttpRequest, db: web::Data<Database>) -> Result<HttpResponse, AppError> {
@@ -261,6 +261,8 @@ pub async fn admin_upload(
     let mut message: Option<String> = None;
     let mut destinations_field: Option<String> = None;
     let mut sender: Option<String> = None;
+    // Timestamp marking when the admin initiated the upload request
+    let sent_time = Utc::now().format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string();
 
     println!("admin_upload called");
     // Ensure temp directory exists
@@ -274,14 +276,12 @@ pub async fn admin_upload(
                     let filename = cd.get_filename().unwrap_or("unknown_file").to_string();
                     let temp_path = format!("./temp/{}", &filename);
                     let mut f = File::create(&temp_path).await?;
-                    // Convert the multipart field (a Stream of Bytes) into an AsyncRead
-                    // so we can leverage Tokio's highly-optimised copy implementation.
-                    let mut stream_reader = StreamReader::new(
-                        field
-                            .map_ok(|bytes| bytes)
-                            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string())),
-                    );
-                    tokio::io::copy(&mut stream_reader, &mut f).await?;
+
+                    while let Some(chunk) = field.try_next().await? {
+                        f.write_all(&chunk).await?;
+                    }
+                    f.flush().await?;
+
                     file_path = Some(temp_path);
                     file_name = Some(filename);
                 }
@@ -332,7 +332,9 @@ pub async fn admin_upload(
     let message_clone = message.clone();
     let sender_clone = sender.clone();
 
-    let mut tasks = Vec::new();
+    // Each transfer is executed inside its own Tokio task for true parallelism across the
+    // multithreaded runtime.
+    let mut tasks: Vec<tokio::task::JoinHandle<(String, String, bool, Option<String>)>> = Vec::new();
 
     println!("parsed");
     println!("FOR LOOP started");
@@ -347,18 +349,23 @@ pub async fn admin_upload(
         let db = db.clone();
         let file_name = file_name.clone();
         let file_path = file_path.clone();
+        let sent_time_clone = sent_time.clone();
 
-        println!("sending to destination");
-        tasks.push(async move {
-            // Build gRPC URL for each destination
-            let url = if ip.starts_with("http") { ip.clone() } else { format!("http://{}:50053", ip) };
+        println!("spawning transfer task for destination");
+        let handle = tokio::spawn(async move {
+            let url = if ip.starts_with("http") {
+                ip.clone()
+            } else if ip.contains(":") {
+                format!("http://{}", ip)
+            } else {
+                format!("http://{}:50053", ip)
+            };
             
             println!("connecting to grpc destination");
             match crate::grpc_client::TransferServiceClient::connect(url).await {
                 Ok(mut client) => {
                     let file_details_ref = file_details.as_ref().map(|(p, n)| (p.as_str(), n.as_str()));
 
-                    let now = Utc::now().format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string();
                     println!("starting transfer");
                     match crate::grpc_client::transfer_data(
                         &mut client,
@@ -367,7 +374,7 @@ pub async fn admin_upload(
                         Some(&username),
                         Some(&ip),
                         sender.as_deref(),
-                    ).await {
+                    ).await.map_err(|e| e.to_string()) {
                         Ok(time_received) => {
                             // Store metadata
                             let doc = FileInfo {
@@ -377,22 +384,30 @@ pub async fn admin_upload(
                                 sender_bank_id: sender.clone().unwrap_or_default(),
                                 receiver_bank_id: username.clone(),
                                 message: message.clone().unwrap_or_default(),
-                                time_sent_at: now,
+                                time_sent_at: sent_time_clone.clone(),
                                 time_received_at: time_received.clone(),
                             };
-                            let _ = db.store_file_info(doc).await;
+                            let _ = db.store_file_info(doc).await.ok();
 
                             (username, ip, true, None::<String>)
                         }
-                        Err(e) => (username, ip, false, Some(e.to_string())),
+                        Err(err_msg) => (username, ip, false, Some(err_msg)),
                     }
                 }
                 Err(e) => (username, ip, false, Some(e.to_string())),
             }
         });
+        tasks.push(handle);
     }
 
-    let results = futures::future::join_all(tasks).await;
+    // Wait for all spawned tasks; convert panic join errors into failed-transfer entries.
+    let mut results = Vec::with_capacity(tasks.len());
+    for handle in futures::future::join_all(tasks).await {
+        match handle {
+            Ok(r) => results.push(r),
+            Err(e) => results.push(("".into(), "".into(), false, Some(format!("task join error: {e}"))))
+        }
+    }
 
     let all_ok = results.iter().all(|(_, _, ok, _)| *ok);
 
@@ -400,6 +415,7 @@ pub async fn admin_upload(
         "message": if all_ok { "Data transfer success." } else { "Partial or full failure." },
         "file_name": &file_name,
         "sent_message": &message,
+        "sent_time": &sent_time,
         "sender": &sender,
         "results": results.iter().map(|(username, ip, ok, err)| {
             serde_json::json!({

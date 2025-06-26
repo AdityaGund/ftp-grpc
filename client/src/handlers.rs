@@ -36,16 +36,21 @@ pub async fn upload(
     mut payload: Multipart,
     db: web::Data<std::sync::Arc<Database>>,
 ) -> Result<HttpResponse, AppError> {
+    println!("upload called");
     let mut file_path: Option<String> = None;
     let mut file_name: Option<String> = None;
     let mut message: Option<String> = None;
     let mut destinations: Option<String> = None;
     // let mut destination_ip: Option<String> = None;
     let mut sender: Option<String> = None;
-
+    // Timestamp when the upload was initiated
+    let sent_time = Utc::now().format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string();
+    
     fs::create_dir_all("./temp").await?;
-
+    
+    println!("starting while");
     while let Some(mut field) = payload.try_next().await? {
+        println!("here");
         if let Some(content_disposition) = field.content_disposition() {
             // println!("[DEBUG] content_disposition: {:?}", content_disposition.parameters);
 
@@ -63,14 +68,10 @@ pub async fn upload(
                     // store file temporarily on client-side
                     let mut f = File::create(&path).await?;
 
-                    // Convert the multipart field (a Stream of Bytes) into an AsyncRead
-                    // so we can leverage Tokio's highly-optimised copy implementation.
-                    let mut stream_reader = StreamReader::new(
-                        field
-                            .map_ok(|bytes| bytes)
-                            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string())),
-                    );
-                    tokio::io::copy(&mut stream_reader, &mut f).await?;
+                    while let Some(chunk) = field.try_next().await? {
+                        f.write_all(&chunk).await?;
+                    }
+                    f.flush().await?;
                     file_path = Some(path);
                     file_name = Some(filename);
                 }
@@ -115,6 +116,7 @@ pub async fn upload(
         }
     }
 
+    println!("parsing destination");
     let destinations :Vec<serde_json::Value> = match &destinations {
         Some(s) => serde_json::from_str(&s).map_err(|_| AppError::ClientError("Invalid destination format".to_string()))?,
         None => vec![],
@@ -124,9 +126,14 @@ pub async fn upload(
 
     let message = message.clone();
     let sender = sender.clone();
-    let mut tasks = Vec::new();
+    // Spawn each transfer in its own Tokio task so the runtime can schedule them in parallel on
+    // the multithreaded executor. We collect the JoinHandles so we can await all of them later
+    // and aggregate the individual results for the HTTP response.
+    let mut tasks: Vec<tokio::task::JoinHandle<(String, String, bool, Option<String>)>> = Vec::new();
 
+    println!("outside for");
     for dest in &destinations {
+        println!("inside for");
         let username = dest
             .get("username")
             .and_then(|v| v.as_str())
@@ -142,15 +149,18 @@ pub async fn upload(
         let message = message.clone();
         let sender = sender.clone();
         let db = db.clone();
+        let sent_time_clone = sent_time.clone();
         let file_name = file_name.clone();
         let file_path = file_path.clone();
 
-        // Push an async future instead of spawning a new task so we don't need Send for HttpResponse.
-        tasks.push(async move {
+        println!("spawning transfer task");
+        let handle = tokio::spawn(async move {
+            println!("starting");
             let port = std::env::var("SERVER_PORT").unwrap();
             let host = std::env::var("SERVER_HOST").unwrap();
             let url = format!("http://{}:{}", host, port);
-
+            
+            println!("connecting to server");
             match TransferServiceClient::connect(url).await {
                 Ok(mut client) => {
                     println!("[CLIENT] connected to server");
@@ -158,9 +168,6 @@ pub async fn upload(
                         .as_ref()
                         .map(|(p, n)| (p.as_str(), n.as_str()));
 
-                    let now = Utc::now()
-                            .format("%Y-%m-%d %H:%M:%S%.3f %Z")
-                            .to_string();
                     match grpc_client::transfer_data(
                         &mut client,
                         file_details_ref,
@@ -170,10 +177,9 @@ pub async fn upload(
                         sender.as_deref(),
                     )
                     .await
+                    .map_err(|e| e.to_string())
                     {
                         Ok(time_received) => {
-                            // Store transfer info in DB (best-effort)
-                            
                             let doc = crate::models::file_info_model::FileInfo {
                                 _id: ObjectId::new(),
                                 name: file_name.clone().unwrap_or_default(),
@@ -181,23 +187,31 @@ pub async fn upload(
                                 sender_bank_id: sender.clone().unwrap_or_default(),
                                 receiver_bank_id: username.clone(),
                                 message: message.clone().unwrap_or_default(),
-                                time_sent_at: now,
-                                time_received_at: time_received,
+                                time_sent_at: sent_time_clone.clone(),
+                                time_received_at: time_received.clone(),
                             };
-                            let _ = db.store_file_info(doc).await;
+                            let _ = db.store_file_info(doc).await.ok();
 
                             (username, ip, true, None::<String>)
                         }
-                        Err(e) => (username, ip, false, Some(e.to_string())),
+                        Err(err_msg) => (username, ip, false, Some(err_msg)),
                     }
                 }
                 Err(e) => (username, ip, false, Some(e.to_string())),
             }
         });
+        tasks.push(handle);
     }
 
-    // Execute all transfers concurrently.
-    let results = join_all(tasks).await;
+    // Await all parallel transfer tasks. A JoinHandle may error if the task panicked; convert
+    // such errors into a regular failed-transfer entry so the frontend can still display it.
+    let mut results = Vec::with_capacity(tasks.len());
+    for handle in join_all(tasks).await {
+        match handle {
+            Ok(r) => results.push(r),
+            Err(e) => results.push(("".into(), "".into(), false, Some(format!("task join error: {e}"))))
+        }
+    }
 
     let all_ok = results.iter().all(|(_, _, ok, _)| *ok);
 
@@ -205,6 +219,7 @@ pub async fn upload(
         "message": if all_ok { "Data transfer success." } else { "Partial or full failure." },
         "file_name": &file_name,
         "sent_message": &message,
+        "sent_time": &sent_time,
         "sender": &sender,
         "results": results.iter().map(|(username, ip, ok, err)| {
             serde_json::json!({
@@ -215,60 +230,6 @@ pub async fn upload(
             })
         }).collect::<Vec<_>>()
     })))
-
-
-
-    //-----------ABOVE IS NEW CODE FOR FILE UPLOAD HANDLING----------------
-    // Perform transfer and build response depending on the outcome
-    // let transfer_result: Result<String, AppError>;
-
-    // connect to B server
-    // task::spawn(async move {
-    // let host = std::env::var("SERVER_HOST").unwrap().to_string();
-    // let port = std::env::var("SERVER_PORT").unwrap().to_string();
-    // let url = format!("http://{}:{}", host, port);
-
-        // match TransferServiceClient::connect(url).await {
-        //     Ok(mut client) => {
-        //         println!("[CLIENT] connected to server");
-        //         let file_details = file_path.as_ref().zip(file_name.as_ref())
-        //             .map(|(p, n)| (p.as_str(), n.as_str()));
-
-        //         transfer_result = grpc_client::transfer_data(
-        //             &mut client,
-        //             file_details,
-        //             message.as_deref(),
-        //             destination.as_deref(),
-        //             destination_ip.as_deref(),
-        //             sender.as_deref(),
-        //             // Some(state.notifier.clone()),
-        //         ).await;
-
-        //THIS PART IS IGNORED FOR NOW
-
-                // if let Err(e) = grpc_client::transfer_data(
-                //     &mut client,
-                //     file_details,
-                //     message.as_deref(),
-                //     destination.as_deref()
-                // )
-                // {
-                //     eprintln!("Failed to send data via gRPC: {}", e);
-                // } else {
-                //     println!("Data transfer stream finished.");
-                //     if let Some(path) = &file_path {
-                //         if let Err(e) = fs::remove_file(path).await {
-                //             eprintln!("Failed to remove temporary file '{}': {}", path, e);
-                //         }
-                //     }
-                // }
-            // }
-            // Err(e) => {
-                // eprintln!("Failed to connect to gRPC server: {}", e);
-                // return Err(error::AppError::ClientError("error".to_string()));
-            // }
-        // }
-    // });
 
 }
 
