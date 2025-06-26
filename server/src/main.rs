@@ -32,7 +32,7 @@ use mongodb::bson::oid::ObjectId;
 use std::sync::Arc;
 
 // const MAX_RETRIES: u8 = 3;
-// const CHUNK_SIZE: usize = 1024 * 1024; // 1 MB
+const CHUNK_SIZE: usize = (1024 * 1024) * 5;
 
 pub mod routes;
 pub mod handlers;
@@ -128,7 +128,7 @@ impl FileTransferService {
                 tonic::Status::internal(format!("Failed to connect to destination: {}", e))
             })?;
 
-        const CHUNK_SIZE: usize = (1024 * 1024) * 5; // 1MB
+        // const CHUNK_SIZE: usize = (1024 * 1024) * 4; // 1MB
         const MAX_RETRIES: u8 = 3;
 
         let mut file = fs::File::open(file_path).await.map_err(|e| {
@@ -494,11 +494,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
         println!("[GRPC ADMIN] Server listening on {}", addr);
         
         Server::builder()
-        .add_service(TransferServiceServer::new(service))
+            .max_frame_size(Some(8 * 1024 * 1024))
+            .add_service(
+                TransferServiceServer::new(service)
+                    .max_encoding_message_size(8 * 1024 * 1024)
+                    .max_decoding_message_size(8 * 1024 * 1024),
+            )
             .serve(addr)
             .await
             .expect("[GRPC ADMIN] failed to create GRPC ADMIN server");
-        
+
     });
     
     

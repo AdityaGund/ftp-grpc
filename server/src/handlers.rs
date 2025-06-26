@@ -260,6 +260,7 @@ pub async fn admin_upload(
     let mut destinations_field: Option<String> = None;
     let mut sender: Option<String> = None;
 
+    println!("admin_upload called");
     // Ensure temp directory exists
     fs::create_dir_all("./temp").await?;
 
@@ -334,16 +335,18 @@ pub async fn admin_upload(
         let file_name = file_name.clone();
         let file_path = file_path.clone();
 
+        println!("sending to destination");
         tasks.push(async move {
             // Build gRPC URL for each destination
             let url = if ip.starts_with("http") { ip.clone() } else { format!("http://{}:50053", ip) };
-
+            
+            println!("connecting to grpc destination");
             match crate::grpc_client::TransferServiceClient::connect(url).await {
                 Ok(mut client) => {
                     let file_details_ref = file_details.as_ref().map(|(p, n)| (p.as_str(), n.as_str()));
 
                     let now = Utc::now().format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string();
-                    
+                    println!("starting transfer");
                     match crate::grpc_client::transfer_data(
                         &mut client,
                         file_details_ref,

@@ -322,10 +322,15 @@ pub async fn run_destination() -> Result<(), Box<dyn Error>> {
     // ---- start gRPC server ---------------------------------------------
     println!("[DESTINATION GRPC] Listening on {}", grpc_addr);
     Server::builder()
-        .add_service(TransferServiceServer::new(FileTransferService::new(tx, db.clone())))
-        // .app_data(db_data.clone())
+        .max_frame_size(Some(8 * 1024 * 1024))
+        .add_service(
+            TransferServiceServer::new(FileTransferService::new(tx, db.clone()))
+                .max_encoding_message_size(8 * 1024 * 1024)
+                .max_decoding_message_size(8 * 1024 * 1024),
+        )
         .serve(grpc_addr)
         .await?;
+
 
     // Wait for HTTP server (if it finishes)
     // let _ = http_handle.await;
