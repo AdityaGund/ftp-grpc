@@ -13,6 +13,8 @@ The stack is split into three Rust services plus a React UI:
 ## Generating JWT RSA keys
 The auth layer relies on RSA256-signed JWTs. Generate a key-pair once and keep it under the local `keys/` folder (already mapped into the containers):
 
+> keys folder already has a public key, ask for the private key.
+
 ```bash
 # from the project root
 mkdir -p keys
