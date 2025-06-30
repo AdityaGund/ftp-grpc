@@ -1,27 +1,12 @@
 version: "3.9"
 
 services:
-  # ------------------ DATABASE ------------------
-  # mongo:
-  #   image: mongo:6
-  #   container_name: ftp-grpc-mongo
-  #   restart: unless-stopped
-  #   environment:
-  #     MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-root}
-  #     MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-example}
-  #   volumes:
-  #     - mongo-data:/data/db
-  #   ports:
-  #     - "27017:27017"
-
   # ------------------ SERVER ------------------
   server:
     build:
       context: .
       dockerfile: Dockerfile.server
     container_name: ftp-grpc-server
-    # depends_on:
-    #   - mongo
     env_file:
       - ./server/.env
     volumes:
@@ -39,7 +24,6 @@ services:
       dockerfile: Dockerfile.runner
     container_name: ftp-grpc-runner
     depends_on:
-      # - mongo
       - server
     env_file:
       - ./client/.env
@@ -50,14 +34,13 @@ services:
       - "8081:8081"    
       - "50053:50053"  
 
+  # ------------------ FRONTEND ------------------
   frontend:
     build:
-      context: ./frontend   
+      context: .
+      dockerfile: Dockerfile.frontend   
     container_name: ftp-grpc-frontend
     ports:
       - "5173:80"
     env_file:
       - ./frontend/.env
-
-# volumes:
-#   mongo-data: 
