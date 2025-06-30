@@ -17,20 +17,32 @@ const BASE = import.meta.env.VITE_CLIENT_API_URL ?? 'http://localhost:8081';
 export function uploadFile(
   file: File | null,
   message: string | null,
-  destination: string,
-  destination_ip: string,
+  // destination: string,
+  // destination_ip: string,
+  detinations:{username: string, ip: string}[],
   sender: string | null,
   token: string | null,
+  role: "bank" | "admin" = "bank",
   // onProgress?: (pct: number) => void,
 ) {
   const form = new FormData();
   if (file) form.append('file', file);
   if (message) form.append('message', message);
-  form.append('destination', destination);
-  form.append('destinationIp', destination_ip);
+  form.append('destinations', JSON.stringify(detinations)); // ->sending our array destinaiont
   if (sender) form.append('sender', sender);
 
-  return axios.post(`${BASE}/upload`, form, {
+  // determine endpoint
+  const isAdmin = role === 'admin';
+
+  const url = isAdmin
+    ? (
+        (
+          import.meta.env.VITE_SERVER_API_URL ?? 'http://127.0.0.1:50052'
+        ) + '/api/admin-upload'
+      )
+    : `${BASE}/upload`;
+
+  return axios.post(url, form, {
     headers: {
       Authorization: `Bearer ${token}`,
     },

@@ -3,11 +3,12 @@ import { useState, useEffect, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
+import { MultiSelect } from "@/components/ui/multi-select";
 import { toast } from "sonner";
 import { uploadFile, fetchAvailableBanks } from "@/lib/api";
-import { Upload, User, SendHorizontal, X, RotateCcw } from "lucide-react";
+import { Upload, User, SendHorizontal, X, RotateCcw, Building2 } from "lucide-react";
 import { useRef } from "react";
 import { useAuth } from "@/lib/AuthContext";
 
@@ -16,39 +17,43 @@ interface Bank {
   ip: string;
 }
 
+interface TransferResult {
+  status: string;
+  destination: string;
+  destination_ip: string;
+  error?: string;
+}
+
 export function FileUpload() {
   const [file, setFile] = useState<File | null>(null);
   const [message, setMessage] = useState<string>("");
-  const [destination, setDestination] = useState<string>("");
-  const [selectedBank, setSelectedBank] = useState<Bank | null>(null);
+  const [selectedBanks, setSelectedBanks] = useState<Bank[]>([]);
   const [uploading, setUploading] = useState<boolean>(false);
-  // const [progress, setProgress] = useState<number>(0);
   const [banks, setBanks] = useState<Bank[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const { username } = useAuth();
+  const { username, user } = useAuth();
   const token = localStorage.getItem("jwt");
 
   useEffect(() => {
     fetchAvailableBanks(token)
       .then((response) => {
-        console.log("Available banks:", response.data);
         setBanks(response.data);
       })
-      .catch((error) => {
-        console.error("Error fetching available banks:", error);
+      .catch(() => {
         toast.error("Failed to load available banks.");
       });
   }, []);
 
-  const handleDestinationChange = (bank: Bank | null) => {
-    setSelectedBank(bank);
+  const handleBanksChange = (selectedValues: string[]) => {
+    const selected = banks.filter(bank => selectedValues.includes(bank.username));
+    setSelectedBanks(selected);
   };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
 
-    if (!selectedBank) {
-      toast.error("Please select a destination bank");
+    if (selectedBanks.length === 0) {
+      toast.error("Please select at least one destination bank");
       return;
     }
 
@@ -63,37 +68,67 @@ export function FileUpload() {
       const response = await uploadFile(
         file,
         message || null,
-        selectedBank.username,
-        selectedBank.ip,
+        selectedBanks.map(b => ({ username: b.username, ip: b.ip })),
         username,
         token,
-        // (pct) => setProgress(pct)
+        user?.role === 'admin' ? 'admin' : 'bank',
       );
 
-      toast.success("Transfer completed successfully!");
-      console.log("Upload response:", response);
+      // Show overall message
+      toast.success(response.data.message);
 
-      // Reset form
+      // Show per-destination results
+      if (response.data.results && Array.isArray(response.data.results)) {
+        response.data.results.forEach((result: TransferResult) => {
+          if (result.status === "success") {
+            toast.success(`Transfer to ${result.destination} (${result.destination_ip}) succeeded.`);
+          } else {
+            toast.error(`Transfer to ${result.destination} (${result.destination_ip}) failed: ${result.error}`);
+          }
+        });
+      }
+
       setFile(null);
       setMessage("");
+      setSelectedBanks([]);
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
     } catch (error) {
-      // setProgress(0);
       toast.error("Transfer failed. Please try again.");
-      console.error("Upload error:", error);
     } finally {
       setUploading(false);
-    }
+  }
+    // try {
+    //   // Send array of banks to backend
+    //   const response = await uploadFile(
+    //     file,
+    //     message || null,
+    //     selectedBanks.map(b => ({ username: b.username, ip: b.ip })), // array of banks
+    //     username,
+    //     token,
+    //     user?.role === 'admin' ? 'admin' : 'bank',
+    //     // (pct) => setProgress(pct)
+    //   );
+
+    //   toast.success("Transfer completed successfully!");
+    //   setFile(null);
+    //   setMessage("");
+    //   setSelectedBanks([]);
+    //   if (fileInputRef.current) {
+    //     fileInputRef.current.value = "";
+    //   }
+    // } catch (error) {
+    //   toast.error("Transfer failed. Please try again.");
+    // } finally {
+    //   setUploading(false);
+    // }
   };
 
   const handleReset = () => {
     setFile(null);
     setMessage("");
-    setDestination("");
-    setSelectedBank(null)
-    // setProgress(0);
+    setSelectedBanks([]);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -105,52 +140,34 @@ export function FileUpload() {
     }
   };
 
+  // Convert banks to options format for MultiSelect
+  const bankOptions = banks.map(bank => ({
+    label: `${bank.username} (${bank.ip})`,
+    value: bank.username,
+    icon: Building2
+  }));
+
   return (
     <div className="w-full max-w-3xl mx-auto">
       <Card className="border shadow-lg hover:shadow-xl transition-all duration-300">
-        <CardHeader className="border-b border-border/50 pb-6">
-          <CardTitle className="flex items-center gap-3 text-2xl font-bold">
-            <div className="p-2 bg-primary/10 rounded-lg">
-              <Upload className="h-6 w-6 text-primary" />
-            </div>
-            <span>Secure File Transfer</span>
-          </CardTitle>
-          <CardDescription className="text-base leading-relaxed">
-            Transfer files or messages securely via encrypted gRPC connection
-          </CardDescription>
-        </CardHeader>
         <CardContent className="p-8">
           <form onSubmit={handleSubmit} className="space-y-8">
             <div className="space-y-4">
-              <label htmlFor="destination" className="text-sm font-semibold flex items-center gap-2 cursor-pointer">
+              <label className="text-sm font-semibold flex items-center gap-2 cursor-pointer">
                 <User className="h-4 w-4 text-muted-foreground" />
-                <span>Destination Bank</span>
+                <span>Destination Banks</span>
               </label>
-              <div className="relative">
-                <select
-                  id="destination"
-                  value={selectedBank?.username || ""}
-                  onChange={(e) => {
-                    const bank = banks.find(b => b.username === e.target.value) || null;
-                    handleDestinationChange(bank);
-                  }}
-                  disabled={uploading}
-                  required
-                  className="w-full p-3 border rounded-lg bg-background hover:border-ring/60 focus:border-ring focus:ring-ring/50 focus:ring-[3px] transition-all duration-200 cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <option value="" disabled>-- Select a destination bank --</option>
-                  {banks.map((bank) => (
-                    <option key={bank.username} value={bank.username}>
-                      {bank.username} ({bank.ip})
-                    </option>
-                  ))}
-                </select>
-              </div>
-              {selectedBank && (
-                <div className="text-sm text-muted-foreground bg-muted/30 p-3 rounded-lg border">
-                  <strong>Selected:</strong> {selectedBank.username} • <strong>IP:</strong> {selectedBank.ip}
-                </div>
-              )}
+              <MultiSelect
+                options={bankOptions}
+                onValueChange={handleBanksChange}
+                defaultValue={selectedBanks.map(bank => bank.username)}
+                placeholder="Select destination banks..."
+                variant="default"
+                animation={2}
+                maxCount={3}
+                className="w-full"
+                disabled={uploading}
+              />
             </div>
 
             <div className="space-y-4">

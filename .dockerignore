@@ -1,0 +1,10 @@
+target
+destination_files
+temp
+frontend/node_modules
+client/.env
+destination/.env
+server/.env
+frontend/.env
+keys/admin_private.pem
+server/received_files

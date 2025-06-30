@@ -1,0 +1,44 @@
+FROM rust:1.87-slim-bullseye AS builder
+
+WORKDIR /usr/src/ftp-grpc
+
+# ---- Build-time dependencies ----
+RUN apt-get update -y \
+    && apt-get install -y --no-install-recommends protobuf-compiler pkg-config libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy workspace manifests first for cached dependency build
+COPY Cargo.toml Cargo.lock ./
+COPY client client
+COPY server server
+COPY destination destination
+COPY runner runner
+COPY proto proto
+
+RUN cargo fetch --locked
+
+# Build in release mode
+RUN cargo build --release -p server
+
+# ---- Runtime image ----
+FROM debian:bookworm-slim AS runtime
+
+RUN apt-get update -y \
+    && apt-get install -y --no-install-recommends ca-certificates openssl libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Add unprivileged user
+RUN useradd --create-home appuser
+WORKDIR /app
+
+# Copy binary
+COPY --from=builder /usr/src/ftp-grpc/target/release/server /usr/local/bin/server
+
+# Prepare directory for mounted secrets / keys
+RUN mkdir -p /app/keys && chown -R appuser:appuser /app
+
+EXPOSE 50051 50052
+
+USER appuser
+
+ENTRYPOINT ["/usr/local/bin/server"] 

@@ -9,6 +9,14 @@ use crate::services::db::Database;
 use actix_web::{get, post};
 use crate::services::auth::AuthService;
 use serde_json::json;
+use actix_multipart::Multipart;
+use futures_util::TryStreamExt;
+use tokio::fs::{self, File};
+use tokio::io::AsyncWriteExt;
+use crate::models::file_info_model::FileInfo;
+use chrono::Utc;
+use futures_util::stream::StreamExt;
+use futures::future::join_all;
 
 #[post("/login")]
 pub async fn login(req: HttpRequest, db: web::Data<Database>) -> Result<HttpResponse, AppError> {
@@ -239,5 +247,183 @@ pub async fn fetch_file_info(db: web::Data<Database>) -> Result<HttpResponse, Ap
 
     Ok(HttpResponse::Ok().json(json!({
         "data": files
+    })))
+}
+
+#[post("/admin-upload")]
+pub async fn admin_upload(
+    mut payload: Multipart,
+    db: web::Data<crate::services::db::Database>,
+) -> Result<HttpResponse, AppError> {
+    // Similar to client upload handler but operates from admin server context
+    let mut file_path: Option<String> = None;
+    let mut file_name: Option<String> = None;
+    let mut message: Option<String> = None;
+    let mut destinations_field: Option<String> = None;
+    let mut sender: Option<String> = None;
+    // Timestamp marking when the admin initiated the upload request
+    let sent_time = Utc::now().format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string();
+
+    println!("admin_upload called");
+    // Ensure temp directory exists
+    fs::create_dir_all("./temp").await?;
+
+    while let Some(mut field) = payload.try_next().await? {
+        println!("here");
+        if let Some(cd) = field.content_disposition() {
+            match cd.get_name() {
+                Some("file") => {
+                    let filename = cd.get_filename().unwrap_or("unknown_file").to_string();
+                    let temp_path = format!("./temp/{}", &filename);
+                    let mut f = File::create(&temp_path).await?;
+
+                    while let Some(chunk) = field.try_next().await? {
+                        f.write_all(&chunk).await?;
+                    }
+                    f.flush().await?;
+
+                    file_path = Some(temp_path);
+                    file_name = Some(filename);
+                }
+                Some("message") => {
+                    let mut data = Vec::<u8>::new();
+                    while let Some(chunk) = field.try_next().await? {
+                        data.extend_from_slice(chunk.as_ref());
+                    }
+                    if let Ok(s) = String::from_utf8(data) {
+                        message = Some(s);
+                    }
+                }
+                Some("destinations") => {
+                    let mut data = Vec::<u8>::new();
+                    while let Some(chunk) = field.try_next().await? {
+                        data.extend_from_slice(chunk.as_ref());
+                    }
+                    if let Ok(s) = String::from_utf8(data) {
+                        destinations_field = Some(s);
+                    }
+                }
+                Some("sender") => {
+                    let mut data = Vec::<u8>::new();
+                    while let Some(chunk) = field.try_next().await? {
+                        data.extend_from_slice(chunk.as_ref());
+                    }
+                    if let Ok(s) = String::from_utf8(data) {
+                        sender = Some(s);
+                    }
+                }
+                _ => (),
+            }
+        }
+    }
+
+    println!("parsing destinations");
+    // Parse destinations JSON array
+    let destinations: Vec<serde_json::Value> = match &destinations_field {
+        Some(s) => serde_json::from_str(&s).map_err(|_| AppError::ClientError("Invalid destination format".into()))?,
+        None => vec![],
+    };
+    println!("parsed");
+    
+    // Prepare shared data for concurrent transfers
+    let file_details = file_path.as_ref().zip(file_name.as_ref())
+    .map(|(p, n)| (p.clone(), n.clone())); // clone for move into tasks
+
+    let message_clone = message.clone();
+    let sender_clone = sender.clone();
+
+    // Each transfer is executed inside its own Tokio task for true parallelism across the
+    // multithreaded runtime.
+    let mut tasks: Vec<tokio::task::JoinHandle<(String, String, bool, Option<String>)>> = Vec::new();
+
+    println!("parsed");
+    println!("FOR LOOP started");
+    for dest in &destinations {
+        println!("inside for loop");
+        let username = dest.get("username").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let ip = dest.get("ip").and_then(|v| v.as_str()).unwrap_or("").to_string();
+
+        let file_details = file_details.clone();
+        let message = message_clone.clone();
+        let sender = sender_clone.clone();
+        let db = db.clone();
+        let file_name = file_name.clone();
+        let file_path = file_path.clone();
+        let sent_time_clone = sent_time.clone();
+
+        println!("spawning transfer task for destination");
+        let handle = tokio::spawn(async move {
+            let url = if ip.starts_with("http") {
+                ip.clone()
+            } else if ip.contains(":") {
+                format!("http://{}", ip)
+            } else {
+                format!("http://{}:50053", ip)
+            };
+            
+            println!("connecting to grpc destination");
+            match crate::grpc_client::TransferServiceClient::connect(url).await {
+                Ok(mut client) => {
+                    let file_details_ref = file_details.as_ref().map(|(p, n)| (p.as_str(), n.as_str()));
+
+                    println!("starting transfer");
+                    match crate::grpc_client::transfer_data(
+                        &mut client,
+                        file_details_ref,
+                        message.as_deref(),
+                        Some(&username),
+                        Some(&ip),
+                        sender.as_deref(),
+                    ).await.map_err(|e| e.to_string()) {
+                        Ok(time_received) => {
+                            // Store metadata
+                            let doc = FileInfo {
+                                _id: ObjectId::new(),
+                                name: file_name.clone().unwrap_or_default(),
+                                path: file_path.clone().unwrap_or_default(),
+                                sender_bank_id: sender.clone().unwrap_or_default(),
+                                receiver_bank_id: username.clone(),
+                                message: message.clone().unwrap_or_default(),
+                                time_sent_at: sent_time_clone.clone(),
+                                time_received_at: time_received.clone(),
+                            };
+                            let _ = db.store_file_info(doc).await.ok();
+
+                            (username, ip, true, None::<String>)
+                        }
+                        Err(err_msg) => (username, ip, false, Some(err_msg)),
+                    }
+                }
+                Err(e) => (username, ip, false, Some(e.to_string())),
+            }
+        });
+        tasks.push(handle);
+    }
+
+    // Wait for all spawned tasks; convert panic join errors into failed-transfer entries.
+    let mut results = Vec::with_capacity(tasks.len());
+    for handle in futures::future::join_all(tasks).await {
+        match handle {
+            Ok(r) => results.push(r),
+            Err(e) => results.push(("".into(), "".into(), false, Some(format!("task join error: {e}"))))
+        }
+    }
+
+    let all_ok = results.iter().all(|(_, _, ok, _)| *ok);
+
+    Ok(HttpResponse::Ok().json(serde_json::json!({
+        "message": if all_ok { "Data transfer success." } else { "Partial or full failure." },
+        "file_name": &file_name,
+        "sent_message": &message,
+        "sent_time": &sent_time,
+        "sender": &sender,
+        "results": results.iter().map(|(username, ip, ok, err)| {
+            serde_json::json!({
+                "destination": username,
+                "destination_ip": ip,
+                "status": if *ok { "success" } else { "failed" },
+                "error": err
+            })
+        }).collect::<Vec<_>>()
     })))
 }

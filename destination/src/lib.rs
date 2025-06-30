@@ -98,6 +98,7 @@ impl TransferService for FileTransferService {
             while let Some(result) = in_stream.next().await {
                 match result {
                     Ok(mut req) => {
+                        println!("received a chunk ({} bytes)", req.content.len());
 
                         // first chunk to check for message
                         if is_first_chunk {
@@ -111,6 +112,7 @@ impl TransferService for FileTransferService {
                                             .windows(SEPARATOR.len())
                                             .position(|window| window == SEPARATOR)
                                         {
+                                            println!("extracting message from first chunk");
                                             message = String::from_utf8_lossy(&req.content[..pos])
                                                 .to_string();
                                             println!("[DESTINATION] Received message: {}", &message);
@@ -173,6 +175,7 @@ impl TransferService for FileTransferService {
 
                                     // create directory and file handling code...
                                     if let Some(fi) = file_info {
+                                        println!("creating file {}", &fi.name);
                                         let storage_dir = "destination_files";
                                         let _ = fs::create_dir_all(storage_dir).await;
                                         let path = Path::new(storage_dir).join(format!("{}", &fi.name));
@@ -194,6 +197,7 @@ impl TransferService for FileTransferService {
 
                                 // write file (after first chunk)
                                 if let Some(f) = file.as_mut() {
+                                    println!("writing chunk to file ({} bytes)", req.content.len());
                                     if !req.content.is_empty() {
                                         if f.write_all(&req.content).await.is_err() {
                                             let _ = tx
@@ -208,12 +212,14 @@ impl TransferService for FileTransferService {
                             }
                         }
 
+                        let now = Utc::now().format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string();
                         let response = TransferResponse {
                             transfer_id: req
                                 .metadata
                                 .as_ref()
                                 .map_or_else(String::new, |m| m.transfer_id.clone()),
                             status: ftp::Status::InProgress as i32,
+                            time_received_at: now,
                             error_info: Some(ErrorInfo {
                                 error_code: "DESTINATION".to_string(),
                                 error_details: req.metadata.as_ref().map(|m| format!("{}/{}", m.chunk_index, m.total_chunks)).unwrap_or_default(),
@@ -237,13 +243,16 @@ impl TransferService for FileTransferService {
             }
 
             if let Some(f) = file.as_mut() {
+                println!("flushing file to disk");
                 let _ = f.flush().await;
             }
 
 
+            let now = Utc::now().format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string();
             let response = TransferResponse {
                 transfer_id,
                 status: ftp::Status::Success as i32,
+                time_received_at: now.clone(),
                 error_info: Some(ErrorInfo {
                     error_code: "DESTINATION".to_string(),
                     error_details: "DONE".to_string(),
@@ -259,7 +268,7 @@ impl TransferService for FileTransferService {
                 receiver_bank_ip,
                 message,
                 time_sent_at,
-                time_received_at: Utc::now().format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string(),
+                time_received_at: now.clone(),
             };
 
             let _ = db_clone.store_file_info(db_doc).await;
@@ -268,7 +277,7 @@ impl TransferService for FileTransferService {
             let _ = tx.send(Ok(response.clone())).await;
             let _ = notifier.send(response.clone());
             if let Some(path) = &temp_file_path {
-                println!("[DESTINATION] File saved to: {} & metadata stored in DB.", path.display());
+                println!("file saved to disk and metadata stored");
             }
         });
 
@@ -318,10 +327,15 @@ pub async fn run_destination() -> Result<(), Box<dyn Error>> {
     // ---- start gRPC server ---------------------------------------------
     println!("[DESTINATION GRPC] Listening on {}", grpc_addr);
     Server::builder()
-        .add_service(TransferServiceServer::new(FileTransferService::new(tx, db.clone())))
-        // .app_data(db_data.clone())
+        .max_frame_size(Some(8 * 1024 * 1024))
+        .add_service(
+            TransferServiceServer::new(FileTransferService::new(tx, db.clone()))
+                .max_encoding_message_size(8 * 1024 * 1024)
+                .max_decoding_message_size(8 * 1024 * 1024),
+        )
         .serve(grpc_addr)
         .await?;
+
 
     // Wait for HTTP server (if it finishes)
     // let _ = http_handle.await;

@@ -5,7 +5,8 @@ import { api } from "@/lib/api";
 import FileInfoDisplay from "./ui/FileInfo";
 import AdminUserManagement from "./ui/AdminUserManagement";
 import { TabContainer } from "./ui/TabContainer";
-import { FileText, User } from "lucide-react";
+import { FileText, User, Upload } from "lucide-react";
+import FileUpload from "./FileUpload";
 
 const AdminHome: React.FC = () => {
   useAuth();
@@ -53,6 +54,12 @@ const AdminHome: React.FC = () => {
 
   const tabs = [
     {
+      id: "upload",
+      label: "File Upload",
+      icon: Upload,
+      content: <FileUpload />
+    },
+    {
       id: "userManagement",
       label: "User Management",
       icon: User,
@@ -78,7 +85,7 @@ const AdminHome: React.FC = () => {
     <div className="w-full max-w-6xl mx-auto">
       <TabContainer 
         tabs={tabs} 
-        defaultTab="userManagement"
+        defaultTab="upload"
       />
     </div>
   );

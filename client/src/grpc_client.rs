@@ -18,7 +18,7 @@ pub use ftp::{
     Metadata, TransferRequest, TransferResponse,
 };
 
-const CHUNK_SIZE: usize = 1024 * 1024; // 1 MB
+const CHUNK_SIZE: usize = (1024 * 1024) * 5;
 const MAX_RETRIES: u8 = 3;
 
 pub async fn transfer_data(
@@ -29,7 +29,7 @@ pub async fn transfer_data(
     destination_ip: Option<&str>,
     sender: Option<&str>
     // notifier: Option<broadcast::Sender<TransferResponse>>,
-) -> Result<(), AppError> {
+) -> Result<String, AppError> {
 
     // can't do much without a file or a message
     if file_details.is_none() && message_content.is_none() {
@@ -81,21 +81,32 @@ pub async fn transfer_data(
     let mut total_chunks = 0;
     if let Some((file_path, _)) = file_details {
         let mut file = File::open(file_path).await?;
-        let file_size = file.metadata().await?.len();
-        total_chunks = (file_size as f64 / CHUNK_SIZE as f64).ceil() as i32;
 
         let mut i = 1;
         loop {
-            let mut buffer = vec![0; CHUNK_SIZE];
-            let n = file.read(&mut buffer).await?;
-            if n == 0 {
+            let mut buffer = Vec::with_capacity(CHUNK_SIZE);
+            let mut bytes_read = 0;
+
+            while bytes_read < CHUNK_SIZE {
+                let mut tmp = vec![0u8; CHUNK_SIZE - bytes_read];
+                let n = file.read(&mut tmp).await?;
+                if n == 0 {
+                    break;
+                }
+                buffer.extend_from_slice(&tmp[..n]);
+                bytes_read += n;
+            }
+
+            if bytes_read == 0 {
                 break;
             }
-            buffer.truncate(n);
+
             file_chunks.push(buffer);
             println!("[CLIENT] created chunk {i}");
             i += 1;
         }
+
+        total_chunks = file_chunks.len() as i32;
     }
 
     // Combine message with first chunk when both present -------------------------
@@ -240,6 +251,8 @@ pub async fn transfer_data(
     /*
         THIS WILL HANDLE ALL  RESPONSES FROM THE SERVER NOW ..
      */
+    let mut time_received_at = String::new();
+
     while let Some(res) = response_stream.next().await {
         match res {
             Ok(resp) => {
@@ -257,6 +270,7 @@ pub async fn transfer_data(
                     }
                     Ok(ftp::Status::Success) => {
                         println!("[CLIENT] Transfer completed successfully.");
+                        time_received_at = resp.time_received_at.clone();
                         break;
                     }
                     Ok(ftp::Status::Failure) => {
@@ -314,5 +328,5 @@ pub async fn transfer_data(
     }
     
 
-    Ok(())
+    Ok(time_received_at)
 }

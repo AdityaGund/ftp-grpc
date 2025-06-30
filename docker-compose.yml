@@ -1,0 +1,29 @@
+services:
+  server:
+    image: ftp-grpc-server
+    container_name: ftp-grpc-server
+    env_file: ./server/.env
+    volumes:
+      - ./keys/admin_private.pem:/app/keys/admin_private.pem:ro
+      - ./keys/admin_public.pem:/app/keys/admin_public.pem:ro
+    ports:
+      - "50051:50051"
+      - "50052:50052"
+
+  runner:
+    image: ftp-grpc-runner
+    container_name: ftp-grpc-runner
+    env_file:
+      - ./client/.env
+      - ./destination/.env
+    volumes:
+      - ./keys/admin_public.pem:/app/keys/admin_public.pem:ro
+    ports:
+      - "8081:8081"
+      - "50053:50053"
+
+  frontend:
+    image: ftp-grpc-frontend
+    container_name: ftp-grpc-frontend
+    ports:
+      - "5173:80"

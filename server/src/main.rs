@@ -32,7 +32,8 @@ use mongodb::bson::oid::ObjectId;
 use std::sync::Arc;
 
 // const MAX_RETRIES: u8 = 3;
-// const CHUNK_SIZE: usize = 1024 * 1024; // 1 MB
+const CHUNK_SIZE: usize = (1024 * 1024) * 5;
+const MAX_RETRIES: u8 = 3;
 
 pub mod routes;
 pub mod handlers;
@@ -40,6 +41,7 @@ pub mod error;
 pub mod models;
 pub mod services;
 pub mod middleware;
+pub mod grpc_client;
 
 pub mod ftp {
     tonic::include_proto!("ftp");
@@ -59,7 +61,7 @@ impl FileTransferService {
         &self,
         message_content: Vec<u8>,
         original_metadata: ftp::Metadata,
-        receiver_bank_id: &str,
+        _receiver_bank_id: &str,
         receiver_bank_ip: &str,
     ) -> Result<impl Stream<Item = Result<TransferResponse, Status>>, Status> {
         // The client now sends the destination IP/URL directly in the header (metadata)
@@ -96,14 +98,20 @@ impl FileTransferService {
         &self,
         file_path: &Path,
         original_metadata: ftp::Metadata,
-        receiver_bank_id: &str,
+        _receiver_bank_id: &str,
         // Sender used to propagate ACKs back to the original client connection. -> tx
         ack_sender: mpsc::Sender<Result<TransferResponse, Status>>,
         receiver_bank_ip: &str,
+        msg: Option<Vec<u8>>,
     ) -> Result<(), Status> {
         
         let db_clone = self.db.clone();
-        
+
+        let message: String = msg
+            .as_ref()
+            .map(|bytes| String::from_utf8_lossy(bytes).to_string())
+            .unwrap_or_default();
+            
         let destination_url = if receiver_bank_ip.starts_with("http") {
             receiver_bank_ip.to_string()
         } else {
@@ -121,8 +129,7 @@ impl FileTransferService {
                 tonic::Status::internal(format!("Failed to connect to destination: {}", e))
             })?;
 
-        const CHUNK_SIZE: usize = 1024 * 1024; // 1MB
-        const MAX_RETRIES: u8 = 3;
+        
 
         let mut file = fs::File::open(file_path).await.map_err(|e| {
             Status::internal(format!("Failed to open temp file for forwarding: {}", e))
@@ -231,9 +238,13 @@ impl FileTransferService {
                             },
                             sender_bank_id: original_metadata.sender_bank_id.clone(),
                             receiver_bank_id: original_metadata.receiver_bank_id.clone(),
-                            message: String::new(),
+                            message: message.clone(),
                             time_sent_at: original_metadata.timestamp.clone(),
-                            time_received_at: chrono::Utc::now().format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string(),
+                            time_received_at: if !ok_res.time_received_at.is_empty() {
+                                ok_res.time_received_at.clone()
+                            } else {
+                                chrono::Utc::now().format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string()
+                            },
                         };
                         let _ = db_clone.store_file_info(db_doc).await;
                     }
@@ -272,10 +283,12 @@ impl TransferService for FileTransferService {
             let mut receiver_bank_ip: Option<String> = None;
             let mut full_metadata: Option<ftp::Metadata> = None;
             let mut message_only_content: Option<Vec<u8>> = None;
+            let mut attachment_message: Option<Vec<u8>> = None;
+            const SEPARATOR: &[u8] = b"---MESSAGE_END---";
 
             while let Some(result) = in_stream.next().await {
                 match result {
-                    Ok(req) => {
+                    Ok(mut req) => {
                         if full_metadata.is_none() {
                             if let Some(metadata) = &req.metadata {
                                 full_metadata = Some(metadata.clone());
@@ -297,12 +310,24 @@ impl TransferService for FileTransferService {
                                 let file_info = match &metadata.payload_type {
                                     Some(ftp::metadata::PayloadType::FileInfo(info)) => Some(info),
                                     Some(ftp::metadata::PayloadType::AttachmentInfo(info)) => {
+                                        // Attempt to extract inline message on the very first chunk for AttachmentInfo
+                                        if attachment_message.is_none() {
+                                            if let Some(pos) = req
+                                                .content
+                                                .windows(SEPARATOR.len())
+                                                .position(|window| window == SEPARATOR)
+                                            {
+                                                attachment_message = Some(req.content[..pos].to_vec());
+                                                // DO NOT modify req.content so that destination still receives the message
+                                            }
+                                        }
                                         info.file_info.as_ref()
                                     }
                                     _ => None,
                                 };
 
                                 if let Some(fi) = file_info {
+                                    println!("[ADMIN SERVER] CREATING TEMPORARY DIRECTORY");
                                     let storage_dir = "received_files";
                                     if fs::create_dir_all(storage_dir).await.is_err() {
                                         let _ = tx
@@ -321,6 +346,7 @@ impl TransferService for FileTransferService {
 
                         if let Some(f) = file.as_mut() {
                             if !req.content.is_empty() {
+                                println!("[ADMIN SERVER] WRITING CHUNK");
                                 if f.write_all(&req.content).await.is_err() {
                                     let _ = tx
                                         .send(Err(Status::internal(
@@ -329,6 +355,7 @@ impl TransferService for FileTransferService {
                                         .await;
                                     return;
                                 }
+                                println!("[ADMIN SERVER] WROTE CHUNK");
                                 // After successfully persisting the chunk, send an ACK back to the client.
                                 let ack = TransferResponse {
                                     transfer_id: req
@@ -336,6 +363,7 @@ impl TransferService for FileTransferService {
                                         .as_ref()
                                         .map_or_else(String::new, |m| m.transfer_id.clone()),
                                     status: ftp::Status::InProgress as i32,
+                                    time_received_at: String::new(),
                                     error_info: Some(ErrorInfo {
                                         error_code: "SERVER".to_string(),
                                         error_details: String::new(),
@@ -354,26 +382,60 @@ impl TransferService for FileTransferService {
                 }
             }
 
-            if let Some(f) = file.as_mut() {
-                if f.flush().await.is_err() {
-                    let _ = tx
-                        .send(Err(Status::internal("Failed to flush temp file")))
-                        .await;
-                    return;
-                }
-            }
+            // if let Some(f) = file.as_mut() {
+            //     if f.flush().await.is_err() {
+            //         let _ = tx
+            //             .send(Err(Status::internal("Failed to flush temp file")))
+            //             .await;
+            //         return;
+            //     }
+            // }
 
             // forward the msg/file to destination
             if let (Some(receiver_id), Some(metadata)) = (receiver_bank_id, full_metadata) {
                 if let Some(message_content) = message_only_content {
+                    // Convert message bytes to String for DB storage
+                    let message_str = String::from_utf8_lossy(&message_content).to_string();
+                    let metadata_clone = metadata.clone();
+
                     match self_clone
-                        .forward_message(message_content, metadata, &receiver_id, &receiver_bank_ip.unwrap())
+                        .forward_message(message_content, metadata_clone.clone(), &receiver_id, &receiver_bank_ip.unwrap())
                         .await
                     {
                         Ok(mut forward_stream) => {
+                            let db_ref = self_clone.db.clone();
                             while let Some(item) = forward_stream.next().await {
-                                // send destinations response to client
+                                let terminate = matches!(
+                                    &item,
+                                    Ok(resp) if resp.status == ftp::Status::Success as i32 || resp.status == ftp::Status::Failure as i32
+                                );
+
+                                if let Ok(resp) = &item {
+                                    if resp.status == ftp::Status::Success as i32 {
+                                        // Store metadata for message-only transfer
+                                        let db_doc = DbFileInfo {
+                                            _id: ObjectId::new(),
+                                            name: String::new(),
+                                            path: String::new(),
+                                            sender_bank_id: metadata_clone.sender_bank_id.clone(),
+                                            receiver_bank_id: metadata_clone.receiver_bank_id.clone(),
+                                            message: message_str.clone(),
+                                            time_sent_at: metadata_clone.timestamp.clone(),
+                                            time_received_at: if !resp.time_received_at.is_empty() {
+                                                resp.time_received_at.clone()
+                                            } else {
+                                                chrono::Utc::now().format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string()
+                                            },
+                                        };
+                                        let _ = db_ref.store_file_info(db_doc).await;
+                                    }
+                                }
+
                                 if tx.send(item).await.is_err() {
+                                    break;
+                                }
+
+                                if terminate {
                                     break;
                                 }
                             }
@@ -383,8 +445,10 @@ impl TransferService for FileTransferService {
                         }
                     }
                 } else if let Some(path) = temp_file_path {
-                    match self_clone.forward_file(&path, metadata, &receiver_id, tx.clone(), &receiver_bank_ip.unwrap()).await {
-                        Ok(_) => {
+                    let msg_for_file = attachment_message.or(message_only_content.clone());
+
+                    match self_clone.forward_file(&path, metadata, &receiver_id, tx.clone(), &receiver_bank_ip.unwrap(), msg_for_file).await {
+                           Ok(_) => {
                             // No need to send response back to client as the file transfer is complete
                         }
                         Err(e) => {
@@ -433,11 +497,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
         println!("[GRPC ADMIN] Server listening on {}", addr);
         
         Server::builder()
-        .add_service(TransferServiceServer::new(service))
+            .max_frame_size(Some(8 * 1024 * 1024))
+            .add_service(
+                TransferServiceServer::new(service)
+                    .max_encoding_message_size(8 * 1024 * 1024)
+                    .max_decoding_message_size(8 * 1024 * 1024),
+            )
             .serve(addr)
             .await
             .expect("[GRPC ADMIN] failed to create GRPC ADMIN server");
-        
+
     });
     
     

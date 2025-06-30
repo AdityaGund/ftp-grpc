@@ -1,0 +1,61 @@
+FROM rust:1.87-slim-bullseye AS builder
+
+# Create a new empty shell project
+WORKDIR /usr/src/ftp-grpc
+
+# Install build dependencies for tonic / openssl / protobuf
+RUN apt-get update -y \
+    && apt-get install -y --no-install-recommends protobuf-compiler pkg-config libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# -------------- DEPENDENCY LAYER -----------------
+# Copy the cargo manifests first and build the dependency layer separately so
+# that Docker layer caching can be leveraged when only the source code changes.
+COPY Cargo.toml Cargo.lock ./
+COPY client/Cargo.toml client/Cargo.toml
+COPY destination/Cargo.toml destination/Cargo.toml
+COPY runner/Cargo.toml runner/Cargo.toml
+COPY proto proto
+COPY server/Cargo.toml server/Cargo.toml
+COPY server/build.rs server/build.rs
+COPY client/src client/src
+COPY destination/src destination/src
+COPY runner/src runner/src
+COPY server/src server/src
+COPY client/build.rs client/build.rs
+COPY destination/build.rs destination/build.rs
+
+# Fetch dependencies after full source is present
+RUN cargo fetch --locked
+
+# -------------- BUILD LAYER ---------------------
+# Build just the `runner` binary in release mode (source already present).
+RUN cargo build --release -p runner
+
+# -------------------------------------------------
+# RUNTIME IMAGE
+# Use a small Debian image that only contains what is necessary to run the
+# compiled binary.
+FROM debian:bookworm-slim AS runtime
+
+# Install minimal runtime dependencies (SSL certificates for HTTPS requests)
+RUN apt-get update -y \
+    && apt-get install -y --no-install-recommends ca-certificates openssl libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create a non-root user to run the service
+RUN useradd --create-home appuser
+WORKDIR /app
+
+COPY --from=builder /usr/src/ftp-grpc/target/release/runner /usr/local/bin/runner
+
+# Create the directory that will hold runtime-mounted secrets / keys
+RUN mkdir -p /app/keys && chown -R appuser:appuser /app
+
+EXPOSE 8081 50051 50053
+
+# Switch to the non-root user
+USER appuser
+
+# Run the binary
+ENTRYPOINT ["/usr/local/bin/runner"] 

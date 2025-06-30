@@ -45,7 +45,7 @@ message MessageInfo {
 message TransferResponse {
     string transfer_id = 1; 
     Status status = 2;
-    // string message = 3;     // e.g., "Successfully received by B", "Forwarded to C", "Error: C unavailable"
+    string time_received_at = 3; // Timestamp when destination successfully received the transfer
     ErrorInfo error_info = 4;
 }
 
