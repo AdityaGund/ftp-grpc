@@ -74,7 +74,7 @@ MONGO_URI=
 ```
 # React-Vite variables (see frontend/src/lib/api.ts)
 VITE_CLIENT_API_URL=http://localhost:8081
-VITE_SERVER_API_URL=http://localhost:50052
+VITE_SERVER_API_URL=http://ftp-grpc-server:50052
 ```
 
 > MONGO_URI for client/destination is the same, but server will have a different MONGO_URI
