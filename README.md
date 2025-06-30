@@ -41,7 +41,7 @@ SERVER_PORT=50051
 SERVER_HTTP_HOST=0.0.0.0
 SERVER_HTTP_PORT=50052
 
-# MongoDB connection (edit to match your setup)
+# MongoDB connection (ENTER admin db uri, this is different from the one in client/destination)
 MONGO_URI=
 
 # JWT keys (mounted by compose)
@@ -52,12 +52,14 @@ JWT_PUBLIC_KEY_PATH=/app/keys/admin_public.pem
 ### 2. `client/.env`
 ```
 CLIENT_HOST=0.0.0.0
+# use the same port for "VITE_CLIENT_API_URL"
 CLIENT_PORT=8081
 
-# Points to the *server* gRPC endpoint *inside* the compose network
+# Points to the *server* gRPC endpoint *inside* the docker compose network
 SERVER_HOST=ftp-grpc-server
 SERVER_PORT=50051
 
+# this URI is the same as destination
 MONGO_URI=
 
 # JWT
@@ -69,6 +71,7 @@ JWT_PUBLIC_KEY_PATH=/app/keys/admin_public.pem
 DESTINATION_HOST=0.0.0.0
 DESTINATION_PORT=50053
 
+# this URI is the same as client
 MONGO_URI=
 ```
 
@@ -79,7 +82,7 @@ VITE_CLIENT_API_URL=http://localhost:8081
 VITE_SERVER_API_URL=http://ftp-grpc-server:50052
 ```
 
-> MONGO_URI for client/destination is the same, but server will have a different MONGO_URI
+> MONGO_URI for client/destination is the same, but server will have a different MONGO_URI.
 
 ---
 
@@ -105,11 +108,6 @@ docker compose -f docker-compose.build.yml up -d
 ---
 
 # API Reference
-
-## Conventions
-* **Host/Port** – listed for the default Docker-Compose deployment. Adjust if you changed published ports.
-* **Auth** – unless otherwise stated, endpoints under `/api` (Admin) or any Bank endpoint require the HTTP header `Authorization: Bearer <JWT>` returned by `POST /login`.
-* **Content-Type** – multipart endpoints expect `multipart/form-data`; JSON bodies are not currently used – parameters are passed via headers or multipart fields.
 
 ## 1. Admin Server (actix-web)
 
@@ -143,3 +141,28 @@ service TransferService {
 }
 ```
 Use any gRPC client (e.g. `grpcurl`, Postman) to interact. Maximum message size is **8 mb**.
+
+## Architecture Overview
+
+1. **Bank ➜ Bank transfer (with Server in the middle)**
+  - A Bank runs the **runner** container which bundles two micro-services:
+    - **client** – exposes a simple HTTP `POST /upload` endpoint for the local Bank UI or CLI.
+    - **destination** – receives inbound gRPC streams from other peers.
+  - When a Bank user uploads a file/message, *client* breaks the payload into chunks and opens a bidirectional gRPC stream (`TransferService.Transfer`) to the **server**.
+  - The server acts as a smart router: it checks the JWT, looks up the requested recipient Banks in its MongoDB, then **fans-out** the same stream to each recipient's *destination* service.
+  - Each destination writes the incoming chunks to disk / DB, sends progress back through the stream, and finally ACKs success or failure.
+
+2. **Admin ➜ Bank transfer**
+  - Admins talk to the **server** directly over HTTP (`/api/admin-upload`).
+  - The server reuses the exact same gRPC fan-out pipeline described above to push the payload to one or many Banks.
+
+3. **Transport & APIs**
+  - gRPC (powered by `tonic`) is used for the heavy-lifting: it enables 
+     bidirectional streaming and 8 MB message sizes.
+  - actix-web powers all REST endpoints (`/login`, `/upload`, etc.).
+  - JWT (RSA-256) secures every hop – Banks and Admins present the token on both HTTP and gRPC calls.
+
+4. **Why this matters**
+  - **Multi-Bank:** one push can target any subset of Banks; adding a new Bank is just a DB insert.
+  - **Resilience:** chunked streaming means large files resume on network hiccups (server can ask for `RETRY`).
+  - **Observability:** every transfer is timestamped and stored, so transfer history is queryable via REST.
