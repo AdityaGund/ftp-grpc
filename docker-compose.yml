@@ -1,3 +1,4 @@
+version: "3.9"
 services:
   server:
     image: ftp-grpc-server
@@ -16,6 +17,7 @@ services:
     env_file:
       - ./client/.env
       - ./destination/.env
+      - ./runner/.env
     volumes:
       - ./keys/admin_public.pem:/app/keys/admin_public.pem:ro
     ports:
@@ -27,3 +29,5 @@ services:
     container_name: ftp-grpc-frontend
     ports:
       - "5173:80"
+    env_file:
+      - ./frontend/.env

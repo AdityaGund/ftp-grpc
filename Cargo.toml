@@ -1,2 +1,2 @@
 [workspace]
-members = ["client", "server", "destination", "runner", "file-watcher-agent"]
+members = ["client", "server", "destination", "runner"]

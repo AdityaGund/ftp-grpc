@@ -180,7 +180,27 @@ impl TransferService for FileTransferService {
                                         let _ = fs::create_dir_all(storage_dir).await;
                                         let path = Path::new(storage_dir).join(format!("{}", &fi.name));
                                         temp_file_path = Some(path.clone());
-                                        file = Some(fs::File::create(path.clone()).await.unwrap());
+
+                                        let append_mode = fi.content_type.contains("log");
+
+                                        let file_handle = if append_mode {
+                                            
+                                            if !path.exists(){
+                                                println!("[DEST] Creating {}", fi.name);
+                                                tokio::fs::File::create(&path).await.unwrap()
+                                            } else {
+                                                println!("[DEST] Appending to {}", fi.name);
+                                                tokio::fs::OpenOptions::new()
+                                                    .append(true)
+                                                    .open(&path)
+                                                    .await
+                                                    .unwrap()
+                                            }
+                                        } else {
+                                            println!("[DEST] Creating {}", fi.name);
+                                            tokio::fs::File::create(&path).await.unwrap()
+                                        };
+                                        file = Some(file_handle);
 
                                         // store file-specific metadata details
                                         file_name = fi.name.clone();
@@ -276,7 +296,7 @@ impl TransferService for FileTransferService {
             println!("[DESTINATION] Final ACK sent for transfer {} (SUCCESS)", response.transfer_id);
             let _ = tx.send(Ok(response.clone())).await;
             let _ = notifier.send(response.clone());
-            if let Some(path) = &temp_file_path {
+            if let Some(_path) = &temp_file_path {
                 println!("file saved to disk and metadata stored");
             }
         });

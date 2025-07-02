@@ -79,6 +79,7 @@ MONGO_URI=
 ```
 # React-Vite variables (see frontend/src/lib/api.ts)
 VITE_CLIENT_API_URL=http://localhost:8081
+# When running via docker-compose the *internal* DNS name is used:
 VITE_SERVER_API_URL=http://ftp-grpc-server:50052
 ```
 
@@ -166,3 +167,15 @@ Use any gRPC client (e.g. `grpcurl`, Postman) to interact. Maximum message size 
   - **Multi-Bank:** one push can target any subset of Banks; adding a new Bank is just a DB insert.
   - **Resilience:** chunked streaming means large files resume on network hiccups (server can ask for `RETRY`).
   - **Observability:** every transfer is timestamped and stored, so transfer history is queryable via REST.
+
+### Quick testing inside Docker
+
+* **Frontend → Server**: make sure `VITE_SERVER_API_URL` points to
+  `ftp-grpc-server:50052` (already shown above). This is the service name
+  reachable from the browser running inside the *frontend* container.
+
+* **Ad-hoc file transfers from your host → runner**: send gRPC/HTTP requests to
+  an address that's **inside the compose network** – either use the service name
+  `ftp-grpc-runner` or the container's IP (obtain with
+  `docker inspect ftp-grpc-runner`). Requests to `localhost` won't work because
+  they bypass the Docker bridge.

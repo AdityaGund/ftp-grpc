@@ -8,9 +8,6 @@ RUN apt-get update -y \
     && apt-get install -y --no-install-recommends protobuf-compiler pkg-config libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# -------------- DEPENDENCY LAYER -----------------
-# Copy the cargo manifests first and build the dependency layer separately so
-# that Docker layer caching can be leveraged when only the source code changes.
 COPY Cargo.toml Cargo.lock ./
 COPY client/Cargo.toml client/Cargo.toml
 COPY destination/Cargo.toml destination/Cargo.toml

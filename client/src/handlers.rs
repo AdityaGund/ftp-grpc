@@ -16,10 +16,10 @@ use tokio::io::AsyncWriteExt;
 // use futures_util::StreamExt;
 // use std::convert::Infallible;
 // use crate::AppState;
-use tokio_util::io::StreamReader;
-use futures_util::stream::StreamExt;
+// use tokio_util::io::StreamReader;
+// use futures_util::stream::StreamExt;
 
-use crate::error::{self, AppError};
+use crate::error::{AppError};
 // use crate::grpc_client::TransferResponse;
 use crate::grpc_client::{self, ftp::transfer_service_client::TransferServiceClient};
 use crate::services::db::Database;
@@ -175,6 +175,7 @@ pub async fn upload(
                         Some(&username),
                         Some(&ip),
                         sender.as_deref(),
+                        false
                     )
                     .await
                     .map_err(|e| e.to_string())

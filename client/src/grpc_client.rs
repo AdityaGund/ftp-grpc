@@ -27,7 +27,8 @@ pub async fn transfer_data(
     message_content: Option<&str>,
     destination: Option<&str>,
     destination_ip: Option<&str>,
-    sender: Option<&str>
+    sender: Option<&str>,
+    is_log: bool,
     // notifier: Option<broadcast::Sender<TransferResponse>>,
 ) -> Result<String, AppError> {
 
@@ -54,7 +55,7 @@ pub async fn transfer_data(
                     name: file_name.to_string(),
                     path: file_path.to_string(),
                     size: file_size,
-                    content_type: "application/octet-stream".to_string(),
+                    content_type: if is_log { "text/plain+log".to_string() } else { "application/octet-stream".to_string() },
                 }),
                 message_info: Some(MessageInfo { length: message_length }),
             }))
@@ -66,7 +67,7 @@ pub async fn transfer_data(
                 name: file_name.to_string(),
                 path: file_path.to_string(),
                 size: file_size,
-                content_type: "application/octet-stream".to_string(),
+                content_type: if is_log { "text/plain+log".to_string() } else { "application/octet-stream".to_string() },
             }))
         }
         (false, true) => {
