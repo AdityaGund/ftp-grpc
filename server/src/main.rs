@@ -413,7 +413,7 @@ impl TransferService for FileTransferService {
             // forward the msg/file to destination
             if let (Some(receiver_id), Some(metadata)) = (receiver_bank_id.clone(), full_metadata) {
                 // Bank ➜ Admin transfers are stored locally and NOT forwarded further.
-                if receiver_id == "ADMIN" {
+                if receiver_id.starts_with("A") {
                     println!("[ADMIN SERVER] Bank->Admin transfer received; no forwarding.");
                 } else {
                     if let Some(message_content) = message_only_content {

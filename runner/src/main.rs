@@ -9,6 +9,9 @@ use notify::event::CreateKind;
 use std::path::PathBuf;
 use tokio::task;
 use tokio::sync::mpsc;
+use serde_json;
+
+const FILE_SIZES_STORE: &str = "file_sizes.json";
 
 #[actix_web::main]
 async fn main() {
@@ -113,6 +116,22 @@ async fn send_file_via_grpc(path: PathBuf) {
     }
 }
 
+fn save_file_sizes(map: &HashMap<PathBuf, u64>) {
+    let string_map: HashMap<String, u64> = map
+        .iter()
+        .map(|(k, v)| (k.to_string_lossy().to_string(), *v))
+        .collect();
+
+    match serde_json::to_string(&string_map) {
+        Ok(json) => {
+            if let Err(e) = fs::write(FILE_SIZES_STORE, json) {
+                log::error!("Failed to write {FILE_SIZES_STORE}: {e}");
+            }
+        }
+        Err(e) => log::error!("Failed to serialise file sizes: {e}"),
+    }
+}
+
 fn process_file_change<P: AsRef<Path>>(src: P, file_sizes: &mut HashMap<PathBuf, u64>) -> io::Result<()> {
     // println!("started");
 
@@ -130,6 +149,7 @@ fn process_file_change<P: AsRef<Path>>(src: P, file_sizes: &mut HashMap<PathBuf,
     if src_size > last_size {
         // Update map first so repeated events don't resend the same data.
         file_sizes.insert(src_path.to_path_buf(), src_size);
+        save_file_sizes(file_sizes);
 
         // Read the delta bytes ------------------------------------------------
         use std::io::{Read, Seek, SeekFrom};
@@ -173,14 +193,25 @@ async fn watch_async<P: AsRef<Path>>(path: P) -> notify::Result<()> {
 
     watcher.watch(path.as_ref(), RecursiveMode::Recursive)?;
 
-    let mut file_sizes: HashMap<PathBuf, u64> = HashMap::new();
+    let mut file_sizes: HashMap<PathBuf, u64> =
+        if let Ok(data) = fs::read_to_string(FILE_SIZES_STORE) {
+            match serde_json::from_str::<HashMap<String, u64>>(&data) {
+                Ok(map) => map
+                    .into_iter()
+                    .map(|(k, v)| (PathBuf::from(k), v))
+                    .collect(),
+                Err(_) => HashMap::new(),
+            }
+        } else {
+            HashMap::new()
+        };
 
     while let Some(res) = rx.recv().await {
         match res {
             Ok(event) => {
                 if matches!(
                     event.kind,
-                    EventKind::Create(CreateKind::Any) | EventKind::Modify(ModifyKind::Any)
+                    EventKind::Create(CreateKind::File) | EventKind::Create(CreateKind::Any) | EventKind::Modify(ModifyKind::Any)
                 ) {
                     log::info!("Change: {event:?}");
                     for path in event.paths {
