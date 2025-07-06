@@ -5,6 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
+import { getErrorMessage } from "@/lib/utils";
 import { UserPlus, Key, Globe, Info } from "lucide-react";
 import axios from "axios";
 import { api } from "@/lib/api";
@@ -46,7 +47,7 @@ const AdminUserManagement: React.FC<UserManagementProps> = ({ token }) => {
         setAdminUsers(data.admins);
       } catch (e) {
         console.error("Failed to fetch users", e);
-        toast.error("Failed to fetch user list.");
+        toast.error(getErrorMessage(e));
       }
     };
     fetch();
@@ -80,9 +81,9 @@ const AdminUserManagement: React.FC<UserManagementProps> = ({ token }) => {
       setIp("");
     } catch (err: unknown) {
       if (axios.isAxiosError(err)) {
-        toast.error(err.response?.data?.message || "Failed to add user");
+        toast.error(getErrorMessage(err));
       } else {
-        toast.error("Failed to add user");
+        toast.error(getErrorMessage(err));
       }
     } finally {
       setSubmitting(false);
@@ -121,9 +122,9 @@ const AdminUserManagement: React.FC<UserManagementProps> = ({ token }) => {
       setUpdateIp("");
     } catch (err: unknown) {
       if (axios.isAxiosError(err)) {
-        toast.error(err.response?.data?.message || "Failed to update user");
+        toast.error(getErrorMessage(err));
       } else {
-        toast.error("Failed to update user");
+        toast.error(getErrorMessage(err));
       }
     } finally {
       setUpdating(false);
@@ -153,9 +154,9 @@ const AdminUserManagement: React.FC<UserManagementProps> = ({ token }) => {
       setDeleteUsername("");
     } catch (err: unknown) {
       if (axios.isAxiosError(err)) {
-        toast.error(err.response?.data?.message || "Failed to delete user");
+        toast.error(getErrorMessage(err));
       } else {
-        toast.error("Failed to delete user");
+        toast.error(getErrorMessage(err));
       }
     } finally {
       setDeleting(false);

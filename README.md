@@ -10,101 +10,74 @@ The stack is split into three Rust services plus a React UI:
 
 # Setup
 
-## Generating JWT RSA keys
-The auth layer relies on RSA256-signed JWTs. Generate a key-pair once and keep it under the local `keys/` folder (already mapped into the containers):
+## Prerequisites
 
-> keys folder already has a public key, ask for the private key.
+* Docker & Docker Compose v2
+* OpenSSL (only required once to generate the JWT key-pair)
+* Optional – Rust toolchain & Node.js if you prefer running services outside Docker
+
+## 1. Clone the repository
 
 ```bash
-# from the project root
+git clone https://github.com/AdityaGund/ftp-grpc.git
+cd ftp-grpc
+```
+
+## 2. Generate JWT RSA keys
+
+Create an RSA-256 key-pair **once** under the `keys/` folder (already mounted into every container):
+
+> Only share **public** key with banks.
+
+```bash
 mkdir -p keys
 openssl genrsa -out keys/admin_private.pem 4096
 openssl rsa -in keys/admin_private.pem -pubout -out keys/admin_public.pem
 ```
 
-> The paths inside the container are expected to be `/app/keys/admin_private.pem` and `/app/keys/admin_public.pem` – **do not change them unless you also update the corresponding environment variables**.
+The paths inside the containers are fixed to `/app/keys/admin_private.pem` and `/app/keys/admin_public.pem` – change them only if you also update the corresponding `JWT_*_KEY_PATH` variables.
 
----
+## 3. Configure environment variables
 
-## Environment variables
-Each micro-service reads its own `.env` file. **Create the following files next to the listed Cargo.toml before starting the stack.**
-
-> example env files are included.
-
-### 1. `server/.env`
-```
-# gRPC transport
-SERVER_HOST=0.0.0.0
-SERVER_PORT=50051
-
-# REST (admin) interface
-SERVER_HTTP_HOST=0.0.0.0
-SERVER_HTTP_PORT=50052
-
-# MongoDB connection (ENTER admin db uri, this is different from the one in client/destination)
-MONGO_URI=
-
-# JWT keys (mounted by compose)
-JWT_PRIVATE_KEY_PATH=/app/keys/admin_private.pem
-JWT_PUBLIC_KEY_PATH=/app/keys/admin_public.pem
-```
-
-### 2. `client/.env`
-```
-CLIENT_HOST=0.0.0.0
-# use the same port for "VITE_CLIENT_API_URL"
-CLIENT_PORT=8081
-
-# Points to the *server* gRPC endpoint *inside* the docker compose network
-SERVER_HOST=ftp-grpc-server
-SERVER_PORT=50051
-
-# this URI is the same as destination
-MONGO_URI=
-
-# JWT
-JWT_PUBLIC_KEY_PATH=/app/keys/admin_public.pem
-```
-
-### 3. `destination/.env`
-```
-DESTINATION_HOST=0.0.0.0
-DESTINATION_PORT=50053
-
-# this URI is the same as client
-MONGO_URI=
-```
-
-### 4. `frontend/.env`
-```
-# React-Vite variables (see frontend/src/lib/api.ts)
-VITE_CLIENT_API_URL=http://localhost:8081
-# When running via docker-compose the *internal* DNS name is used:
-VITE_SERVER_API_URL=http://ftp-grpc-server:50052
-```
-
-> MONGO_URI for client/destination is the same, but server will have a different MONGO_URI.
-
----
-
-## Running with Docker-Compose
-
-### Quick start (pre-built images)
-If you already have the `ftp-grpc-<service>` images published locally or pulled from a registry:
+Each micro-service contains a ready-made `.env.example`. Copy it to `.env` and tweak as needed:
 
 ```bash
-docker compose up -d            # uses docker-compose.yml
+cp server/.env.example       server/.env
+cp client/.env.example       client/.env
+cp destination/.env.example  destination/.env
+cp runner/.env.example  runner/.env
+cp frontend/.env.example     frontend/.env
 ```
 
-### Build images locally (recommended for development)
+### **Databases:** you will need **two MongoDB databases** for local/testing purposes:
+
+1. **Admin DB** – used exclusively by the `server` service (admin & routing data).
+2. **Bank DB**  – shared by both the `client` and `destination` services (transfer metadata).
+
+They can live on the same Mongo instance – simply point each `.env` file to the appropriate database name.
+
+## 4. Start the stack
+
+### Pre-built images
+If you already have the `ftp-grpc-*` images locally (or pulled from a registry):
 
 ```bash
-# Build the images and start the whole stack using the build-oriented compose file
+docker compose up -d
+```
 
+### Build everything locally (recommended for development)
+
+```bash
 docker compose -f docker-compose.build.yml build
 
 docker compose -f docker-compose.build.yml up -d
 ```
+
+Once the containers are up you can reach:
+
+* Admin REST API → `http://localhost:50052`
+* Bank client API → `http://localhost:8081`
+* React UI        → `http://localhost:5173` (if you mapped the port)
 
 ---
 

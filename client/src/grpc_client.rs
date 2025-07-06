@@ -157,9 +157,25 @@ pub async fn transfer_data(
                 Some(Ok(ack)) => {
                     let origin = ack.error_info.as_ref().map(|e| e.error_code.as_str()).unwrap_or("UNKNOWN");
                     println!("[CLIENT] ACK received from {}. status: {} (chunk {} )", origin, ack.status, ack.transfer_id);
-                    // if let Some(tx) = notifier {
-                    //     let _ = tx.send(ack.clone());
-                    // }
+
+                    // Handle special statuses
+                    if ack.status == ftp::Status::Failure as i32 {
+                        let details = ack.error_info.as_ref().map(|e| e.error_details.clone()).unwrap_or_default();
+                        return Err(AppError::ClientError(format!("Transfer failed according to {origin}: {details}")));
+                    }
+
+                    if ack.status == ftp::Status::Retry as i32 {
+                        // Destination/server asked us to retry this chunk – fall through to retry logic.
+                        if attempt == MAX_RETRIES {
+                            return Err(AppError::ClientError("Exceeded max retries after RETRY status".into()));
+                        } else {
+                            println!("[CLIENT] RETRY requested by {} – will retry (attempt {}/{})", origin, attempt, MAX_RETRIES);
+                            continue;
+                        }
+                    }
+
+                    // SUCCESS or IN_PROGRESS
+                    // if let Some(tx) = notifier { let _ = tx.send(ack.clone()); }
                     return Ok(());
                 }
                 Some(Err(e)) => {

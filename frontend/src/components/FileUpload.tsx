@@ -8,6 +8,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { toast } from "sonner";
 import { uploadFile, fetchAvailableBanks } from "@/lib/api";
+import { getErrorMessage } from "@/lib/utils";
 import { Upload, User, SendHorizontal, X, RotateCcw, Building2 } from "lucide-react";
 import { useRef } from "react";
 import { useAuth } from "@/lib/AuthContext";
@@ -74,8 +75,13 @@ export function FileUpload() {
         user?.role === 'admin' ? 'admin' : 'bank',
       );
 
-      // Show overall message
-      toast.success(response.data.message);
+      // Show overall outcome based on results
+      const allSuccess = Array.isArray(response.data.results) && response.data.results.every((r: any) => r.status === "success");
+      if (allSuccess) {
+        toast.success(response.data.message || "Transfer complete.");
+      } else {
+        toast.error(response.data.message || "Transfer encountered failures.");
+      }
 
       // Show per-destination results
       if (response.data.results && Array.isArray(response.data.results)) {
@@ -95,34 +101,10 @@ export function FileUpload() {
         fileInputRef.current.value = "";
       }
     } catch (error) {
-      toast.error("Transfer failed. Please try again.");
+      toast.error(getErrorMessage(error));
     } finally {
       setUploading(false);
-  }
-    // try {
-    //   // Send array of banks to backend
-    //   const response = await uploadFile(
-    //     file,
-    //     message || null,
-    //     selectedBanks.map(b => ({ username: b.username, ip: b.ip })), // array of banks
-    //     username,
-    //     token,
-    //     user?.role === 'admin' ? 'admin' : 'bank',
-    //     // (pct) => setProgress(pct)
-    //   );
-
-    //   toast.success("Transfer completed successfully!");
-    //   setFile(null);
-    //   setMessage("");
-    //   setSelectedBanks([]);
-    //   if (fileInputRef.current) {
-    //     fileInputRef.current.value = "";
-    //   }
-    // } catch (error) {
-    //   toast.error("Transfer failed. Please try again.");
-    // } finally {
-    //   setUploading(false);
-    // }
+    }
   };
 
   const handleReset = () => {

@@ -186,7 +186,24 @@ impl FileTransferService {
                 match response_stream.next().await {
                     Some(Ok(ack)) => {
                         println!("[SERVER] ACK received from destination for transfer {} (status = {})", ack.transfer_id, ack.status);
-                        let _ = ack_sender.send(Ok(ack)).await;
+
+                        // Evaluate the status coming from destination so that we don't blindly
+                        // proceed when the destination is signalling a problem.
+                        if ack.status == ftp::Status::Failure as i32 {
+                            // Propagate FAILURE to the original client and abort the transfer.
+                            let _ = ack_sender.send(Ok(ack.clone())).await;
+                            return Err(Status::internal("Destination reported FAILURE status"));
+                        } else if ack.status == ftp::Status::Retry as i32 {
+                            println!("[SERVER] Destination requested RETRY for chunk {}", i + 1);
+                            if attempt == MAX_RETRIES {
+                                return Err(Status::internal("Max retries reached after RETRY request"));
+                            } else {
+                                continue; // retry sending the same chunk
+                            }
+                        }
+
+                        // SUCCESS or IN_PROGRESS – treat as an acknowledgement.
+                        let _ = ack_sender.send(Ok(ack.clone())).await;
                         println!("[SERVER] ACK forwarded to client");
                         break; // success, move to next chunk
                     }
@@ -506,7 +523,10 @@ impl TransferService for FileTransferService {
 
 #[actix_web::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    dotenv().ok();
+    let env_path = Path::new(env!("CARGO_MANIFEST_DIR")).join(".env");
+    if dotenv::from_path(env_path.as_path()).is_err() {
+        dotenv().ok();
+    }
 
     let grpc_handle = actix_web::rt::spawn(async move {
         let host = env::var("SERVER_HOST").unwrap();

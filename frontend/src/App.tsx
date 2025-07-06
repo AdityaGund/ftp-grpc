@@ -7,11 +7,14 @@ import AdminHome from "./components/AdminHome"
 import Unauthorized from "./components/Unauthorized"
 import Layout from "./components/Layout.tsx"
 import  {ThemeProvider}  from "./components/ui/theme-provider.tsx"
+import { Toaster } from "@/components/ui/sonner"
 import './index.css';
 
 const App: React.FC = () => {
   return (
     <ThemeProvider defaultTheme="system" storageKey="vite-ui-theme">
+      {/* Global toast container */}
+      <Toaster richColors closeButton />
       <Routes>
         <Route path="/login" element={<Login />} />
         
