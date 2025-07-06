@@ -47,7 +47,7 @@ impl Database {
             .file_info
             .find(doc! {})
             .await
-            .map_err(|_| AppError::DatabaseError("Failed to query file info".into()))?;
+            .map_err(|e| AppError::DatabaseError(format!("Failed to query file info: {}", e)))?;
 
         let files: Vec<FileInfo> = cursor
             .try_collect()

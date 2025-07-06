@@ -79,6 +79,43 @@ Once the containers are up you can reach:
 * Bank client API → `http://localhost:8081`
 * React UI        → `http://localhost:5173` (if you mapped the port)
 
+## 5. Seed the Admin database (mandatory)
+
+Before logging in to the dashboard you **must** create at least one Admin account in the `admin_db.admin` collection. Without it the authentication endpoint will return an error.
+
+1. Ensure the stack is running:
+
+   ```bash
+   docker compose up -d   # or the build variant if you built the images locally
+   ```
+
+2. Open an interactive Mongo shell inside the `mongoAdmin` container (password: `adminPass123`):
+
+   ```bash
+   docker exec -it mongoAdmin mongosh -u mongoAdmin -p adminPass123 --authenticationDatabase admin
+   ```
+
+3. Insert an admin document (adjust the ObjectId / credentials as you like):
+
+   ```js
+   use admin_db;
+   db.admin.insertOne({
+     _id: ObjectId("685258ebc25f4303af50ddf2"),
+     username: "A001",
+     password: "$argon2id$v=19$m=19456,t=2,p=1$GTwEdGQ07tZ1zOWLU8UShQ$5M3mYiVPgnR7nsH3rm7Orcdj24V8xGL+AZIHv1Uafwo"
+   });
+   ```
+
+   > the above password is `testpass123` hashed using argon2 crate. change it later using UI.
+
+   You can also run the helper script `playground-1.mongodb.js` (VS Code MongoDB playground) or any MongoDB client using the connection URI:
+
+   ```
+   mongodb://mongoAdmin:adminPass123@localhost:27017/admin_db?authSource=admin
+   ```
+
+Once at least one Admin exists you can log in (`POST /login`) and use the UI.
+
 ---
 
 # API Reference

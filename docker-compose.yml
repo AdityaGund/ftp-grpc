@@ -31,3 +31,33 @@ services:
       - "5173:80"
     env_file:
       - ./frontend/.env
+
+  mongoAdmin:
+    image: mongo:7.0
+    container_name: mongoAdmin
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_INITDB_ROOT_USERNAME}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_INITDB_ROOT_PASSWORD}
+    env_file:
+      - ./server/.env
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongoAdminVolume:/data/db
+
+  mongoBank:
+    image: mongo:7.0
+    container_name: mongoBank
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_INITDB_ROOT_BANK_USERNAME}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_INITDB_ROOT_BANK_PASSWORD}
+    env_file:
+      - ./runner/.env
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongoBankVolume:/data/db
+
+volumes:
+  mongoAdminVolume:
+  mongoBankVolume:
