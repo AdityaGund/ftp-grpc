@@ -24,3 +24,4 @@ client/.env
 destination/.env
 keys/admin_private.pem
 file-watcher-agent/.env
+runner/file_sizes.json

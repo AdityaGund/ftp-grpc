@@ -133,6 +133,8 @@ Once at least one Admin exists you can log in (`POST /login`) and use the UI.
 | GET  | `/api/file-info` | Any JWT | Fetch stored file metadata (all banks). | – |
 | POST | `/api/admin-upload` | Admin | Send file or text message to selected banks. | **multipart/form-data** fields:<br>• `file` – binary file (optional)<br>• `message` – text (optional)<br>• `destinations` – JSON string `[ {"username":"BANK_D", "ip":"127.0.0.1"}, ... ]`<br>• `sender` – your admin username |
 
+> The token returned by `/login` endpoint is only valid for 60 minutes. This can be changed inside `server/src/handlers.rs`.
+
 ## 2. Bank Server (actix-web)
 
 | Method | Path | Auth | Purpose | Required headers / fields |

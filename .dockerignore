@@ -8,3 +8,4 @@ server/.env
 frontend/.env
 keys/admin_private.pem
 server/received_files
+runner/file_sizes.json
