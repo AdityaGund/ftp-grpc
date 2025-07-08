@@ -73,11 +73,19 @@ docker compose -f docker-compose.build.yml build
 docker compose -f docker-compose.build.yml up -d
 ```
 
-Once the containers are up you can reach:
+> The database container passwords are set as:
+> ### Admin db
+> - username: `mongoAdmin`
+> - password: `adminPass123`
+>
+> ### Bank db
+> - username: `mongoBank`
+> - password: `bankPass123`
+>
+> To change these, make changes in `server/.env` and `runner/.env`.
+>
+> Make proper changes to the `MONGO_URI` as well. 
 
-* Admin REST API → `http://localhost:50052`
-* Bank client API → `http://localhost:8081`
-* React UI        → `http://localhost:5173` (if you mapped the port)
 
 ## 5. Seed the Admin database (mandatory)
 
@@ -108,13 +116,10 @@ Before logging in to the dashboard you **must** create at least one Admin accoun
 
    > the above password is `testpass123` hashed using argon2 crate. change it later using UI.
 
-   You can also run the helper script `playground-1.mongodb.js` (VS Code MongoDB playground) or any MongoDB client using the connection URI:
+   
+   You can also run the helper script `playground-1.mongodb.js` (VS Code MongoDB playground)
 
-   ```
-   mongodb://mongoAdmin:adminPass123@localhost:27017/admin_db?authSource=admin
-   ```
-
-Once at least one Admin exists you can log in (`POST /login`) and use the UI.
+Once at least one Admin exists you can log in (`POST /login`) to test the UI.
 
 ---
 
