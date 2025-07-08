@@ -49,6 +49,13 @@ cp runner/.env.example  runner/.env
 cp frontend/.env.example     frontend/.env
 ```
 
+Things to change after copying .env files,
+- `client/.env` - change MONGO_URI and SERVER_HOST
+- `destination/.env` - change MONGO_URI
+- `frontend/.env` - change VITE_SERVER_API_URL
+- `runner/.env` - change MONGO container credentials and ADMIN_SERVER_HOST
+- `server/.env` - change MONGO_URI and MONGO container credentials
+
 ### **Databases:** you will need **two MongoDB databases** for local/testing purposes:
 
 1. **Admin DB** – used exclusively by the `server` service (admin & routing data).

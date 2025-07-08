@@ -8,14 +8,14 @@ RUN apt-get update -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy workspace manifests first for cached dependency build
-COPY Cargo.toml Cargo.lock ./
+COPY Cargo.toml ./
 COPY client client
 COPY server server
 COPY destination destination
 COPY runner runner
 COPY proto proto
 
-RUN cargo fetch --locked
+RUN cargo fetch
 
 # Build in release mode
 RUN cargo build --release -p server
