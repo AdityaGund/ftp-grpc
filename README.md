@@ -10,106 +10,127 @@ The stack is split into three Rust services plus a React UI:
 
 # Setup
 
-## Generating JWT RSA keys
-The auth layer relies on RSA256-signed JWTs. Generate a key-pair once and keep it under the local `keys/` folder (already mapped into the containers):
+## Prerequisites
 
-> keys folder already has a public key, ask for the private key.
+* Docker & Docker Compose v2
+* OpenSSL (only required once to generate the JWT key-pair)
+* Optional – Rust toolchain & Node.js if you prefer running services outside Docker
+
+## 1. Clone the repository
 
 ```bash
-# from the project root
+git clone https://github.com/AdityaGund/ftp-grpc.git
+cd ftp-grpc
+```
+
+## 2. Generate JWT RSA keys
+
+Create an RSA-256 key-pair **once** under the `keys/` folder (already mounted into every container):
+
+> Only share **public** key with banks.
+
+```bash
 mkdir -p keys
 openssl genrsa -out keys/admin_private.pem 4096
 openssl rsa -in keys/admin_private.pem -pubout -out keys/admin_public.pem
 ```
 
-> The paths inside the container are expected to be `/app/keys/admin_private.pem` and `/app/keys/admin_public.pem` – **do not change them unless you also update the corresponding environment variables**.
+The paths inside the containers are fixed to `/app/keys/admin_private.pem` and `/app/keys/admin_public.pem` – change them only if you also update the corresponding `JWT_*_KEY_PATH` variables.
 
----
+## 3. Configure environment variables
 
-## Environment variables
-Each micro-service reads its own `.env` file. **Create the following files next to the listed Cargo.toml before starting the stack.**
-
-> example env files are included.
-
-### 1. `server/.env`
-```
-# gRPC transport
-SERVER_HOST=0.0.0.0
-SERVER_PORT=50051
-
-# REST (admin) interface
-SERVER_HTTP_HOST=0.0.0.0
-SERVER_HTTP_PORT=50052
-
-# MongoDB connection (edit to match your setup)
-MONGO_URI=
-
-# JWT keys (mounted by compose)
-JWT_PRIVATE_KEY_PATH=/app/keys/admin_private.pem
-JWT_PUBLIC_KEY_PATH=/app/keys/admin_public.pem
-```
-
-### 2. `client/.env`
-```
-CLIENT_HOST=0.0.0.0
-CLIENT_PORT=8081
-
-# Points to the *server* gRPC endpoint *inside* the compose network
-SERVER_HOST=ftp-grpc-server
-SERVER_PORT=50051
-
-MONGO_URI=
-
-# JWT
-JWT_PUBLIC_KEY_PATH=/app/keys/admin_public.pem
-```
-
-### 3. `destination/.env`
-```
-DESTINATION_HOST=0.0.0.0
-DESTINATION_PORT=50053
-
-MONGO_URI=
-```
-
-### 4. `frontend/.env`
-```
-# React-Vite variables (see frontend/src/lib/api.ts)
-VITE_CLIENT_API_URL=http://localhost:8081
-VITE_SERVER_API_URL=http://ftp-grpc-server:50052
-```
-
-> MONGO_URI for client/destination is the same, but server will have a different MONGO_URI
-
----
-
-## Running with Docker-Compose
-
-### Quick start (pre-built images)
-If you already have the `ftp-grpc-<service>` images published locally or pulled from a registry:
+Each micro-service contains a ready-made `.env.example`. Copy it to `.env` and tweak as needed:
 
 ```bash
-docker compose up -d            # uses docker-compose.yml
+cp server/.env.example       server/.env
+cp client/.env.example       client/.env
+cp destination/.env.example  destination/.env
+cp runner/.env.example  runner/.env
+cp frontend/.env.example     frontend/.env
 ```
 
-### Build images locally (recommended for development)
+Things to change after copying .env files,
+- `client/.env` - change MONGO_URI and SERVER_HOST
+- `destination/.env` - change MONGO_URI
+- `frontend/.env` - change VITE_SERVER_API_URL
+- `runner/.env` - change MONGO container credentials and ADMIN_SERVER_HOST
+- `server/.env` - change MONGO_URI and MONGO container credentials
+
+### **Databases:** you will need **two MongoDB databases** for local/testing purposes:
+
+1. **Admin DB** – used exclusively by the `server` service (admin & routing data).
+2. **Bank DB**  – shared by both the `client` and `destination` services (transfer metadata).
+
+They can live on the same Mongo instance – simply point each `.env` file to the appropriate database name.
+
+## 4. Start the stack
+
+### Pre-built images
+If you already have the `ftp-grpc-*` images locally (or pulled from a registry):
 
 ```bash
-# Build the images and start the whole stack using the build-oriented compose file
+docker compose up -d
+```
 
+### Build everything locally (recommended for development)
+
+```bash
 docker compose -f docker-compose.build.yml build
 
 docker compose -f docker-compose.build.yml up -d
 ```
 
+> The database container passwords are set as:
+> ### Admin db
+> - username: `mongoAdmin`
+> - password: `adminPass123`
+>
+> ### Bank db
+> - username: `mongoBank`
+> - password: `bankPass123`
+>
+> To change these, make changes in `server/.env` and `runner/.env`.
+>
+> Make proper changes to the `MONGO_URI` as well. 
+
+
+## 5. Seed the Admin database (mandatory)
+
+Before logging in to the dashboard you **must** create at least one Admin account in the `admin_db.admin` collection. Without it the authentication endpoint will return an error.
+
+1. Ensure the stack is running:
+
+   ```bash
+   docker compose up -d   # or the build variant if you built the images locally
+   ```
+
+2. Open an interactive Mongo shell inside the `mongoAdmin` container (password: `adminPass123`):
+
+   ```bash
+   docker exec -it mongoAdmin mongosh -u mongoAdmin -p adminPass123 --authenticationDatabase admin
+   ```
+
+3. Insert an admin document (adjust the ObjectId / credentials as you like):
+
+   ```js
+   use admin_db;
+   db.admin.insertOne({
+     _id: ObjectId("685258ebc25f4303af50ddf2"),
+     username: "A001",
+     password: "$argon2id$v=19$m=19456,t=2,p=1$GTwEdGQ07tZ1zOWLU8UShQ$5M3mYiVPgnR7nsH3rm7Orcdj24V8xGL+AZIHv1Uafwo"
+   });
+   ```
+
+   > the above password is `testpass123` hashed using argon2 crate. change it later using UI.
+
+   
+   You can also run the helper script `playground-1.mongodb.js` (VS Code MongoDB playground)
+
+Once at least one Admin exists you can log in (`POST /login`) to test the UI.
+
 ---
 
 # API Reference
-
-## Conventions
-* **Host/Port** – listed for the default Docker-Compose deployment. Adjust if you changed published ports.
-* **Auth** – unless otherwise stated, endpoints under `/api` (Admin) or any Bank endpoint require the HTTP header `Authorization: Bearer <JWT>` returned by `POST /login`.
-* **Content-Type** – multipart endpoints expect `multipart/form-data`; JSON bodies are not currently used – parameters are passed via headers or multipart fields.
 
 ## 1. Admin Server (actix-web)
 
@@ -123,6 +144,8 @@ docker compose -f docker-compose.build.yml up -d
 | GET  | `/api/users` | Admin | Full list of banks & admins. | – |
 | GET  | `/api/file-info` | Any JWT | Fetch stored file metadata (all banks). | – |
 | POST | `/api/admin-upload` | Admin | Send file or text message to selected banks. | **multipart/form-data** fields:<br>• `file` – binary file (optional)<br>• `message` – text (optional)<br>• `destinations` – JSON string `[ {"username":"BANK_D", "ip":"127.0.0.1"}, ... ]`<br>• `sender` – your admin username |
+
+> The token returned by `/login` endpoint is only valid for 60 minutes. This can be changed inside `server/src/handlers.rs`.
 
 ## 2. Bank Server (actix-web)
 
@@ -143,3 +166,40 @@ service TransferService {
 }
 ```
 Use any gRPC client (e.g. `grpcurl`, Postman) to interact. Maximum message size is **8 mb**.
+
+## Architecture Overview
+
+1. **Bank ➜ Bank transfer (with Server in the middle)**
+  - A Bank runs the **runner** container which bundles two micro-services:
+    - **client** – exposes a simple HTTP `POST /upload` endpoint for the local Bank UI or CLI.
+    - **destination** – receives inbound gRPC streams from other peers.
+  - When a Bank user uploads a file/message, *client* breaks the payload into chunks and opens a bidirectional gRPC stream (`TransferService.Transfer`) to the **server**.
+  - The server acts as a smart router: it checks the JWT, looks up the requested recipient Banks in its MongoDB, then **fans-out** the same stream to each recipient's *destination* service.
+  - Each destination writes the incoming chunks to disk / DB, sends progress back through the stream, and finally ACKs success or failure.
+
+2. **Admin ➜ Bank transfer**
+  - Admins talk to the **server** directly over HTTP (`/api/admin-upload`).
+  - The server reuses the exact same gRPC fan-out pipeline described above to push the payload to one or many Banks.
+
+3. **Transport & APIs**
+  - gRPC (powered by `tonic`) is used for the heavy-lifting: it enables 
+     bidirectional streaming and 8 MB message sizes.
+  - actix-web powers all REST endpoints (`/login`, `/upload`, etc.).
+  - JWT (RSA-256) secures every hop – Banks and Admins present the token on both HTTP and gRPC calls.
+
+4. **Why this matters**
+  - **Multi-Bank:** one push can target any subset of Banks; adding a new Bank is just a DB insert.
+  - **Resilience:** chunked streaming means large files resume on network hiccups (server can ask for `RETRY`).
+  - **Observability:** every transfer is timestamped and stored, so transfer history is queryable via REST.
+
+### Quick testing inside Docker
+
+* **Frontend → Server**: make sure `VITE_SERVER_API_URL` points to
+  `ftp-grpc-server:50052` (already shown above). This is the service name
+  reachable from the browser running inside the *frontend* container.
+
+* **Ad-hoc file transfers from your host → runner**: send gRPC/HTTP requests to
+  an address that's **inside the compose network** – either use the service name
+  `ftp-grpc-runner` or the container's IP (obtain with
+  `docker inspect ftp-grpc-runner`). Requests to `localhost` won't work because
+  they bypass the Docker bridge.

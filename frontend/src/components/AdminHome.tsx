@@ -7,6 +7,7 @@ import AdminUserManagement from "./ui/AdminUserManagement";
 import { TabContainer } from "./ui/TabContainer";
 import { FileText, User, Upload } from "lucide-react";
 import FileUpload from "./FileUpload";
+import { getErrorMessage } from "@/lib/utils";
 
 const AdminHome: React.FC = () => {
   useAuth();
@@ -35,7 +36,7 @@ const AdminHome: React.FC = () => {
       setFiles(response.data.data || []);
     } catch (error) {
       console.error("Error fetching admin file info", error);
-      toast.error("Failed to load file history");
+      toast.error(getErrorMessage(error));
     } finally {
       setLoadingFiles(false);
     }

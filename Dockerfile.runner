@@ -8,10 +8,7 @@ RUN apt-get update -y \
     && apt-get install -y --no-install-recommends protobuf-compiler pkg-config libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# -------------- DEPENDENCY LAYER -----------------
-# Copy the cargo manifests first and build the dependency layer separately so
-# that Docker layer caching can be leveraged when only the source code changes.
-COPY Cargo.toml Cargo.lock ./
+COPY Cargo.toml ./
 COPY client/Cargo.toml client/Cargo.toml
 COPY destination/Cargo.toml destination/Cargo.toml
 COPY runner/Cargo.toml runner/Cargo.toml
@@ -26,7 +23,7 @@ COPY client/build.rs client/build.rs
 COPY destination/build.rs destination/build.rs
 
 # Fetch dependencies after full source is present
-RUN cargo fetch --locked
+RUN cargo fetch
 
 # -------------- BUILD LAYER ---------------------
 # Build just the `runner` binary in release mode (source already present).

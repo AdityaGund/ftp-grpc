@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Upload, FileText } from "lucide-react";
 import { toast } from "sonner";
+import { getErrorMessage } from "@/lib/utils";
 import { fetchFileInfo } from "@/lib/api";
 import { useAuth } from "@/lib/AuthContext";
 import FileUpload from "./FileUpload";
@@ -32,7 +33,7 @@ export function BankHome() {
       setFiles(response.data.data || []);
     } catch (error) {
       console.error("Error fetching file info:", error);
-      toast.error("Failed to load file information");
+      toast.error(getErrorMessage(error));
     } finally {
       setLoading(false);
     }

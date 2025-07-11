@@ -94,18 +94,28 @@ impl TransferService for FileTransferService {
             let mut time_sent_at = String::new();
             let mut file_name = String::new();
             let mut file_path = String::new();
+            let mut expected_total_chunks: Option<i32> = None;
+            let mut received_chunks: i32 = 0;
+            let mut transfer_failed: bool = false;
 
             while let Some(result) = in_stream.next().await {
                 match result {
                     Ok(mut req) => {
                         println!("received a chunk ({} bytes)", req.content.len());
 
-                        // first chunk to check for message
+                        if let Some(metadata) = &req.metadata {
+                            if expected_total_chunks.is_none() {
+                                expected_total_chunks = Some(metadata.total_chunks);
+                            }
+                            if metadata.total_chunks > 0 {
+                                received_chunks += 1;
+                            }
+                        }
+
                         if is_first_chunk {
                             is_first_chunk = false;
                             if let Some(metadata) = &req.metadata {
                                 match &metadata.payload_type {
-                                    // if metadata is msg+file
                                     Some(ftp::metadata::PayloadType::AttachmentInfo(_)) => {
                                         if let Some(pos) = req
                                             .content
@@ -121,7 +131,6 @@ impl TransferService for FileTransferService {
                                         }
                                     }
 
-                                    // if metadata is only msg
                                     Some(ftp::metadata::PayloadType::MessageInfo(_)) => {
                                         message = String::from_utf8_lossy(&req.content).to_string();
                                         println!(
@@ -131,20 +140,16 @@ impl TransferService for FileTransferService {
                                         req.content.clear();
                                     }
 
-                                    // only file, no msg
                                     _ => {}
                                 }
                             }
                         }
 
-                        // after first chunk
                         if let Some(metadata) = &req.metadata {
-                            // Extract common metadata fields for ALL payload types
                             if transfer_id.is_empty() {
                                 transfer_id = metadata.transfer_id.clone();
                             }
                             
-                            // Extract common fields that should be available for all payload types
                             if sender_bank_id.is_empty() {
                                 sender_bank_id = metadata.sender_bank_id.clone();
                             }
@@ -155,14 +160,11 @@ impl TransferService for FileTransferService {
                                 time_sent_at = metadata.timestamp.clone();
                             }
 
-                            // only check for files (file-specific logic)
                             if !matches!(
                                 &metadata.payload_type,
                                 Some(ftp::metadata::PayloadType::MessageInfo(_))
                             ) {
-                                // write file on disk (for first chunk)
                                 if file.is_none() {
-                                    // file name
                                     let file_info = match &metadata.payload_type {
                                         Some(ftp::metadata::PayloadType::FileInfo(info)) => {
                                             Some(info)
@@ -173,16 +175,34 @@ impl TransferService for FileTransferService {
                                         _ => None,
                                     };
 
-                                    // create directory and file handling code...
                                     if let Some(fi) = file_info {
                                         println!("creating file {}", &fi.name);
                                         let storage_dir = "destination_files";
                                         let _ = fs::create_dir_all(storage_dir).await;
                                         let path = Path::new(storage_dir).join(format!("{}", &fi.name));
                                         temp_file_path = Some(path.clone());
-                                        file = Some(fs::File::create(path.clone()).await.unwrap());
 
-                                        // store file-specific metadata details
+                                        let append_mode = fi.content_type.contains("log");
+
+                                        let file_handle = if append_mode {
+                                            
+                                            if !path.exists(){
+                                                println!("[DEST] Creating {}", fi.name);
+                                                tokio::fs::File::create(&path).await.unwrap()
+                                            } else {
+                                                println!("[DEST] Appending to {}", fi.name);
+                                                tokio::fs::OpenOptions::new()
+                                                    .append(true)
+                                                    .open(&path)
+                                                    .await
+                                                    .unwrap()
+                                            }
+                                        } else {
+                                            println!("[DEST] Creating {}", fi.name);
+                                            tokio::fs::File::create(&path).await.unwrap()
+                                        };
+                                        file = Some(file_handle);
+
                                         file_name = fi.name.clone();
                                         file_path = match std::fs::canonicalize(&path) {
                                             Ok(abs) => abs.to_string_lossy().to_string(),
@@ -195,11 +215,11 @@ impl TransferService for FileTransferService {
                                     }
                                 }
 
-                                // write file (after first chunk)
                                 if let Some(f) = file.as_mut() {
                                     println!("writing chunk to file ({} bytes)", req.content.len());
                                     if !req.content.is_empty() {
                                         if f.write_all(&req.content).await.is_err() {
+                                            transfer_failed = true;
                                             let _ = tx
                                                 .send(Err(Status::internal(
                                                     "Failed to write file chunk",
@@ -235,6 +255,7 @@ impl TransferService for FileTransferService {
                         let _ = notifier.send(response.clone());
                     }
                     Err(e) => {
+                        transfer_failed = true;
                         if tx.send(Err(e)).await.is_err() {
                             break;
                         }
@@ -249,13 +270,27 @@ impl TransferService for FileTransferService {
 
 
             let now = Utc::now().format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string();
+            let success_condition = !transfer_failed && expected_total_chunks.map(|t| t == received_chunks).unwrap_or(true);
+
+            let final_status = if success_condition {
+                ftp::Status::Success as i32
+            } else {
+                ftp::Status::Failure as i32
+            };
+
+            let final_error_details = if success_condition {
+                "DONE".to_string()
+            } else {
+                format!("Received {}/{} chunks", received_chunks, expected_total_chunks.unwrap_or(0))
+            };
+
             let response = TransferResponse {
                 transfer_id,
-                status: ftp::Status::Success as i32,
+                status: final_status,
                 time_received_at: now.clone(),
                 error_info: Some(ErrorInfo {
                     error_code: "DESTINATION".to_string(),
-                    error_details: "DONE".to_string(),
+                    error_details: final_error_details,
                 }),
             };
 
@@ -276,7 +311,7 @@ impl TransferService for FileTransferService {
             println!("[DESTINATION] Final ACK sent for transfer {} (SUCCESS)", response.transfer_id);
             let _ = tx.send(Ok(response.clone())).await;
             let _ = notifier.send(response.clone());
-            if let Some(path) = &temp_file_path {
+            if let Some(_path) = &temp_file_path {
                 println!("file saved to disk and metadata stored");
             }
         });

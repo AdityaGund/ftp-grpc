@@ -3,7 +3,7 @@ use crate::ftp::{
 };
 use crate::services::db::Database;
 use actix_web::web::Data;
-use actix_web::{http, App, HttpServer};
+use actix_web::{App, HttpServer};
 use actix_cors::Cors;
 use actix_web_httpauth::middleware::HttpAuthentication;
 use chrono::Utc;
@@ -186,7 +186,24 @@ impl FileTransferService {
                 match response_stream.next().await {
                     Some(Ok(ack)) => {
                         println!("[SERVER] ACK received from destination for transfer {} (status = {})", ack.transfer_id, ack.status);
-                        let _ = ack_sender.send(Ok(ack)).await;
+
+                        // Evaluate the status coming from destination so that we don't blindly
+                        // proceed when the destination is signalling a problem.
+                        if ack.status == ftp::Status::Failure as i32 {
+                            // Propagate FAILURE to the original client and abort the transfer.
+                            let _ = ack_sender.send(Ok(ack.clone())).await;
+                            return Err(Status::internal("Destination reported FAILURE status"));
+                        } else if ack.status == ftp::Status::Retry as i32 {
+                            println!("[SERVER] Destination requested RETRY for chunk {}", i + 1);
+                            if attempt == MAX_RETRIES {
+                                return Err(Status::internal("Max retries reached after RETRY request"));
+                            } else {
+                                continue; // retry sending the same chunk
+                            }
+                        }
+
+                        // SUCCESS or IN_PROGRESS – treat as an acknowledgement.
+                        let _ = ack_sender.send(Ok(ack.clone())).await;
                         println!("[SERVER] ACK forwarded to client");
                         break; // success, move to next chunk
                     }
@@ -288,7 +305,7 @@ impl TransferService for FileTransferService {
 
             while let Some(result) = in_stream.next().await {
                 match result {
-                    Ok(mut req) => {
+                    Ok(req) => {
                         if full_metadata.is_none() {
                             if let Some(metadata) = &req.metadata {
                                 full_metadata = Some(metadata.clone());
@@ -337,9 +354,28 @@ impl TransferService for FileTransferService {
                                             .await;
                                         return;
                                     }
-                                    let path = Path::new(storage_dir).join(format!("{}", &fi.name));
+                                    let path = Path::new(storage_dir).join(&fi.name);
                                     temp_file_path = Some(path.clone());
-                                    file = Some(fs::File::create(path).await.unwrap());
+
+                                    let append_mode = fi.content_type.contains("log");
+                                    let file_handle = if append_mode && path.exists() {
+                                        if !path.exists(){
+                                            println!("[ADMIN SERVER] Creating {}", fi.name);
+                                            tokio::fs::File::create(&path).await.unwrap()
+                                        } else {
+                                            println!("[ADMIN SERVER] Appending to {}", fi.name);
+                                            tokio::fs::OpenOptions::new()
+                                                .append(true)
+                                                .open(&path)
+                                                .await
+                                                .unwrap()
+                                        }
+                                    } else {
+                                        println!("[ADMIN SERVER] Creating {}", fi.name);
+                                        fs::File::create(&path).await.unwrap()
+                                    };
+
+                                    file = Some(file_handle);
                                 }
                             }
                         }
@@ -392,79 +428,84 @@ impl TransferService for FileTransferService {
             // }
 
             // forward the msg/file to destination
-            if let (Some(receiver_id), Some(metadata)) = (receiver_bank_id, full_metadata) {
-                if let Some(message_content) = message_only_content {
-                    // Convert message bytes to String for DB storage
-                    let message_str = String::from_utf8_lossy(&message_content).to_string();
-                    let metadata_clone = metadata.clone();
+            if let (Some(receiver_id), Some(metadata)) = (receiver_bank_id.clone(), full_metadata) {
+                // Bank ➜ Admin transfers are stored locally and NOT forwarded further.
+                if receiver_id.starts_with("A") {
+                    println!("[ADMIN SERVER] Bank->Admin transfer received; no forwarding.");
+                } else {
+                    if let Some(message_content) = message_only_content {
+                        // Convert message bytes to String for DB storage
+                        let message_str = String::from_utf8_lossy(&message_content).to_string();
+                        let metadata_clone = metadata.clone();
 
-                    match self_clone
-                        .forward_message(message_content, metadata_clone.clone(), &receiver_id, &receiver_bank_ip.unwrap())
-                        .await
-                    {
-                        Ok(mut forward_stream) => {
-                            let db_ref = self_clone.db.clone();
-                            while let Some(item) = forward_stream.next().await {
-                                let terminate = matches!(
-                                    &item,
-                                    Ok(resp) if resp.status == ftp::Status::Success as i32 || resp.status == ftp::Status::Failure as i32
-                                );
+                        match self_clone
+                            .forward_message(message_content, metadata_clone.clone(), &receiver_id, &receiver_bank_ip.unwrap())
+                            .await
+                        {
+                            Ok(mut forward_stream) => {
+                                let db_ref = self_clone.db.clone();
+                                while let Some(item) = forward_stream.next().await {
+                                    let terminate = matches!(
+                                        &item,
+                                        Ok(resp) if resp.status == ftp::Status::Success as i32 || resp.status == ftp::Status::Failure as i32
+                                    );
 
-                                if let Ok(resp) = &item {
-                                    if resp.status == ftp::Status::Success as i32 {
-                                        // Store metadata for message-only transfer
-                                        let db_doc = DbFileInfo {
-                                            _id: ObjectId::new(),
-                                            name: String::new(),
-                                            path: String::new(),
-                                            sender_bank_id: metadata_clone.sender_bank_id.clone(),
-                                            receiver_bank_id: metadata_clone.receiver_bank_id.clone(),
-                                            message: message_str.clone(),
-                                            time_sent_at: metadata_clone.timestamp.clone(),
-                                            time_received_at: if !resp.time_received_at.is_empty() {
-                                                resp.time_received_at.clone()
-                                            } else {
-                                                chrono::Utc::now().format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string()
-                                            },
-                                        };
-                                        let _ = db_ref.store_file_info(db_doc).await;
+                                    if let Ok(resp) = &item {
+                                        if resp.status == ftp::Status::Success as i32 {
+                                            // Store metadata for message-only transfer
+                                            let db_doc = DbFileInfo {
+                                                _id: ObjectId::new(),
+                                                name: String::new(),
+                                                path: String::new(),
+                                                sender_bank_id: metadata_clone.sender_bank_id.clone(),
+                                                receiver_bank_id: metadata_clone.receiver_bank_id.clone(),
+                                                message: message_str.clone(),
+                                                time_sent_at: metadata_clone.timestamp.clone(),
+                                                time_received_at: if !resp.time_received_at.is_empty() {
+                                                    resp.time_received_at.clone()
+                                                } else {
+                                                    chrono::Utc::now().format("%Y-%m-%d %H:%M:%S%.3f %Z").to_string()
+                                                },
+                                            };
+                                            let _ = db_ref.store_file_info(db_doc).await;
+                                        }
+                                    }
+
+                                    if tx.send(item).await.is_err() {
+                                        break;
+                                    }
+
+                                    if terminate {
+                                        break;
                                     }
                                 }
-
-                                if tx.send(item).await.is_err() {
-                                    break;
-                                }
-
-                                if terminate {
-                                    break;
-                                }
+                            }
+                            Err(e) => {
+                                let _ = tx.send(Err(e)).await;
                             }
                         }
-                        Err(e) => {
-                            let _ = tx.send(Err(e)).await;
-                        }
-                    }
-                } else if let Some(path) = temp_file_path {
-                    let msg_for_file = attachment_message.or(message_only_content.clone());
+                    } else if let Some(path) = temp_file_path {
+                        let msg_for_file = attachment_message.or(message_only_content.clone());
 
-                    match self_clone.forward_file(&path, metadata, &receiver_id, tx.clone(), &receiver_bank_ip.unwrap(), msg_for_file).await {
-                           Ok(_) => {
-                            // No need to send response back to client as the file transfer is complete
+                        match self_clone.forward_file(&path, metadata, &receiver_id, tx.clone(), &receiver_bank_ip.unwrap(), msg_for_file).await {
+                               Ok(_) => {
+                                // No need to send response back to client as the file transfer is complete
+                            }
+                            Err(e) => {
+                                let _ = tx.send(Err(e)).await;
+                            }
                         }
-                        Err(e) => {
-                            let _ = tx.send(Err(e)).await;
-                        }
-                    }
 
-                    if fs::remove_file(path).await.is_err() {
-                        eprintln!("[SERVER] Warning: Failed to clean up temporary file");
+                        if fs::remove_file(path).await.is_err() {
+                            eprintln!("[SERVER] Warning: Failed to clean up temporary file");
+                        }
+                    } else {
+                        let _ = tx
+                            .send(Err(Status::invalid_argument(
+                                "No message or file content was found in the request.",
+                            )))
+                            .await;
                     }
-                } else {
-                    let _ = tx
-                        .send(Err(Status::invalid_argument(
-                            "No message or file content was found in the request.",
-                        )))
-                        .await;
                 }
             } else {
                 let _ = tx
@@ -482,7 +523,10 @@ impl TransferService for FileTransferService {
 
 #[actix_web::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    dotenv().ok();
+    let env_path = Path::new(env!("CARGO_MANIFEST_DIR")).join(".env");
+    if dotenv::from_path(env_path.as_path()).is_err() {
+        dotenv().ok();
+    }
 
     let grpc_handle = actix_web::rt::spawn(async move {
         let host = env::var("SERVER_HOST").unwrap();
