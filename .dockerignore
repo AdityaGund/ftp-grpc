@@ -4,6 +4,7 @@ temp
 frontend/node_modules
 client/.env
 destination/.env
+runner/.env
 server/.env
 frontend/.env
 keys/admin_private.pem

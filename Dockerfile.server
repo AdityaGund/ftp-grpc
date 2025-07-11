@@ -24,7 +24,7 @@ RUN cargo build --release -p server
 FROM debian:bookworm-slim AS runtime
 
 RUN apt-get update -y \
-    && apt-get install -y --no-install-recommends ca-certificates openssl libssl3 \
+    && apt-get install -y --no-install-recommends ca-certificates openssl libssl3 nano vim \
     && rm -rf /var/lib/apt/lists/*
 
 # Add unprivileged user
@@ -33,6 +33,7 @@ WORKDIR /app
 
 # Copy binary
 COPY --from=builder /usr/src/ftp-grpc/target/release/server /usr/local/bin/server
+COPY server/.env.example /app/.env.example
 
 # Prepare directory for mounted secrets / keys
 RUN mkdir -p /app/keys && chown -R appuser:appuser /app

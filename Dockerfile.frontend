@@ -8,5 +8,7 @@ COPY frontend/ ./
 RUN npm run build
 
 FROM nginx:1.25-alpine
+RUN apk add --no-cache nano vim
 COPY --from=builder /app/dist /usr/share/nginx/html
+COPY frontend/.env.example /usr/share/nginx/html/.env.example
 EXPOSE 80
