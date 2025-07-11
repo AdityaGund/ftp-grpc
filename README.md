@@ -23,7 +23,24 @@ git clone https://github.com/AdityaGund/ftp-grpc.git
 cd ftp-grpc
 ```
 
-## 2. Generate JWT RSA keys
+## 2. Start the stack
+
+### Option A: Pre-built images
+If you already have the `ftp-grpc-*` images locally (or pulled from a registry):
+
+```bash
+docker compose up -d
+```
+
+### Option B: Build everything locally (recommended for development)
+
+```bash
+docker compose -f docker-compose.build.yml build
+
+docker compose -f docker-compose.build.yml up -d
+```
+
+## 3. Generate JWT RSA keys
 
 Create an RSA-256 key-pair **once** under the `keys/` folder (already mounted into every container):
 
@@ -37,7 +54,7 @@ openssl rsa -in keys/admin_private.pem -pubout -out keys/admin_public.pem
 
 The paths inside the containers are fixed to `/app/keys/admin_private.pem` and `/app/keys/admin_public.pem` – change them only if you also update the corresponding `JWT_*_KEY_PATH` variables.
 
-## 3. Configure environment variables
+## 4. Configure environment variables
 
 Each micro-service contains a ready-made `.env.example`. Copy it to `.env` and tweak as needed:
 
@@ -56,45 +73,30 @@ Things to change after copying .env files,
 - `runner/.env` - change MONGO container credentials and ADMIN_SERVER_HOST
 - `server/.env` - change MONGO_URI and MONGO container credentials
 
-### **Databases:** you will need **two MongoDB databases** for local/testing purposes:
+> to change env files within the containers, run `docker exec -it <container-name> sh` and use vim/nano to edit the files
+
+## 5. **Databases:** you will need **two MongoDB databases** for local/testing purposes:
 
 1. **Admin DB** – used exclusively by the `server` service (admin & routing data).
 2. **Bank DB**  – shared by both the `client` and `destination` services (transfer metadata).
 
 They can live on the same Mongo instance – simply point each `.env` file to the appropriate database name.
 
-## 4. Start the stack
+The database container passwords are set as:
+### Admin db
+- username: `mongoAdmin`
+- password: `adminPass123`
 
-### Pre-built images
-If you already have the `ftp-grpc-*` images locally (or pulled from a registry):
+### Bank db
+- username: `mongoBank`
+- password: `bankPass123`
 
-```bash
-docker compose up -d
-```
+To change these, make changes in `server/.env` and `runner/.env`.
 
-### Build everything locally (recommended for development)
-
-```bash
-docker compose -f docker-compose.build.yml build
-
-docker compose -f docker-compose.build.yml up -d
-```
-
-> The database container passwords are set as:
-> ### Admin db
-> - username: `mongoAdmin`
-> - password: `adminPass123`
->
-> ### Bank db
-> - username: `mongoBank`
-> - password: `bankPass123`
->
-> To change these, make changes in `server/.env` and `runner/.env`.
->
-> Make proper changes to the `MONGO_URI` as well. 
+Make proper changes to the `MONGO_URI` as well. 
 
 
-## 5. Seed the Admin database (mandatory)
+## 6. Seed the Admin database (mandatory)
 
 Before logging in to the dashboard you **must** create at least one Admin account in the `admin_db.admin` collection. Without it the authentication endpoint will return an error.
 
@@ -113,12 +115,12 @@ Before logging in to the dashboard you **must** create at least one Admin accoun
 3. Insert an admin document (adjust the ObjectId / credentials as you like):
 
    ```js
-   use admin_db;
+   use admin_db
    db.admin.insertOne({
      _id: ObjectId("685258ebc25f4303af50ddf2"),
      username: "A001",
      password: "$argon2id$v=19$m=19456,t=2,p=1$GTwEdGQ07tZ1zOWLU8UShQ$5M3mYiVPgnR7nsH3rm7Orcdj24V8xGL+AZIHv1Uafwo"
-   });
+   })
    ```
 
    > the above password is `testpass123` hashed using argon2 crate. change it later using UI.
